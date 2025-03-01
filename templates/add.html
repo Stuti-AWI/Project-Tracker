@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+
+{% block title %}Add New Sample{% endblock %}
+
+{% block header %}Add New Sample{% endblock %}
+
+{% block content %}
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Add New Sample</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h2>Add New Sample</h2>
+        <form method="POST">
+            <div class="form-sections">
+                <div class="section">
+                    <h3>Sample Details</h3>
+                    <div class="form-group">
+                        <label>ID: <span class="required">*</span></label>
+                        <input type="text" name="id" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Date: <span class="required">*</span></label>
+                        <input type="text" name="date" id="date" placeholder="MM-DD-YYYY" required readonly>
+                    </div>
+                    <div class="form-group">
+                        <label>Time: <span class="required">*</span></label>
+                        <input type="text" name="time" id="time" placeholder="HH:MM" required readonly>
+                        <select name="am_pm" required>
+                            <option value="AM">AM</option>
+                            <option value="PM">PM</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Recipe Front: <span class="required">*</span></label>
+                        <input type="text" name="recipe_front" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Recipe Back: <span class="required">*</span></label>
+                        <input type="text" name="recipe_back" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Glass Type: <span class="required">*</span></label>
+                        <input type="text" name="glass_type" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Dimensions (mm): <span class="required">*</span></label>
+                        <div class="dimensions-group">
+                            <div>
+                                <label>Length:</label>
+                                <input type="number" name="length" required>
+                            </div>
+                            <div>
+                                <label>Thickness:</label>
+                                <input type="number" name="thickness" required>
+                            </div>
+                            <div>
+                                <label>Height:</label>
+                                <input type="number" name="height" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Process:</label>
+                        <div class="checkbox-group">
+                            <label><input type="checkbox" name="cleaning"> Cleaning</label>
+                            <label><input type="checkbox" name="coating"> Coating</label>
+                            <label><input type="checkbox" name="annealing"> Annealing</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h3>Experiment Details</h3>
+                    <div class="form-group">
+                        <label>Transmittance Link:</label>
+                        <input type="url" name="transmittance" placeholder="SharePoint link">
+                    </div>
+                    <div class="form-group">
+                        <label>Reflectance Link:</label>
+                        <input type="url" name="reflectance" placeholder="SharePoint link">
+                    </div>
+                    <div class="form-group">
+                        <label>Absorbance Link:</label>
+                        <input type="url" name="absorbance" placeholder="SharePoint link">
+                    </div>
+                    <div class="form-group">
+                        <label>PLQY Link:</label>
+                        <input type="url" name="plqy" placeholder="SharePoint link">
+                    </div>
+                    <div class="form-group">
+                        <label>SEM Link:</label>
+                        <input type="url" name="sem" placeholder="SharePoint link">
+                    </div>
+                    <div class="form-group">
+                        <label>EDX Link:</label>
+                        <input type="url" name="edx" placeholder="SharePoint link">
+                    </div>
+                    <div class="form-group">
+                        <label>XRD Link:</label>
+                        <input type="url" name="xrd" placeholder="SharePoint link">
+                    </div>
+                </div>
+            </div>
+
+            <div class="button-group">
+                <button type="submit" class="btn-green">Add Sample</button>
+                <a href="{{ url_for('index') }}" class="back-link">Back to List</a>
+            </div>
+            <div class="required-note">* Required fields</div>
+        </form>
+    </div>
+    <script>
+        // Auto-populate current date in MM-DD-YYYY format
+        window.onload = function() {
+            const dateInput = document.getElementById('date');
+            const timeInput = document.getElementById('time');
+            const now = new Date();
+            
+            // Format date
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const year = now.getFullYear();
+            dateInput.value = `${month}-${day}-${year}`;
+            
+            // Format time
+            let hours = now.getHours();
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            const ampm = document.querySelector('select[name="am_pm"]');
+            
+            // Convert to 12-hour format
+            if (hours >= 12) {
+                ampm.value = 'PM';
+                hours = hours === 12 ? 12 : hours - 12;
+            } else {
+                ampm.value = 'AM';
+                hours = hours === 0 ? 12 : hours;
+            }
+            hours = String(hours).padStart(2, '0');
+            timeInput.value = `${hours}:${minutes}`;
+        };
+    </script>
+</body>
+</html>
+{% endblock %} 

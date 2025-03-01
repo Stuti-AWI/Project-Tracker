@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+
+{% block title %}Chatbot{% endblock %}
+
+{% block header %}Project Tracker Chatbot{% endblock %}
+
+{% block content %}
+<div class="chatbot-container">
+    <div class="add-button">
+        <a href="{{ url_for('combined_view') }}" class="btn-blue">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M15 8H1M8 15L1 8L8 1" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Back to Combined View
+        </a>
+    </div>
+
+    <div class="chat-box">
+        <div class="chat-messages" id="chatMessages">
+            <div class="message bot">
+                Hello! I can help you find records. Try asking : Show me the records of ID="AWI001"
+            </div>
+            {% if query %}
+                <div class="message user">
+                    {{ query }}
+                </div>
+                {% if error %}
+                    <div class="message bot error">
+                        {{ error }}
+                    </div>
+                {% elif response %}
+                    <div class="message bot">
+                        {{ response | safe | replace('\n', '<br>') }}
+                    </div>
+                {% endif %}
+            {% endif %}
+        </div>
+        <form method="POST" class="chat-input-form">
+            <input type="text" name="query" placeholder="Enter your query..." required class="chat-input">
+            <button type="submit" class="chat-submit">Send</button>
+        </form>
+    </div>
+
+    {% if results %}
+    <div class="chat-results">
+        <div class="table-container">
+            <table id="resultsTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Date</th>
+                        <th>Time</th>
+                        <th>Recipe Front</th>
+                        <th>Recipe Back</th>
+                        <th>Glass Type</th>
+                        <th>Dimensions (mm)</th>
+                        <th>Cleaning</th>
+                        <th>Coating</th>
+                        <th>Annealing</th>
+                        <th>Done</th>
+                        <th>Transmittance</th>
+                        <th>Reflectance</th>
+                        <th>Absorbance</th>
+                        <th>PLQY</th>
+                        <th>SEM</th>
+                        <th>EDX</th>
+                        <th>XRD</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for sample, experiment in results %}
+                    <tr>
+                        <td>{{ sample.id }}</td>
+                        <td>{{ sample.date }}</td>
+                        <td>{{ sample.time }} {{ sample.am_pm }}</td>
+                        <td>{{ sample.recipe_front }}</td>
+                        <td>{{ sample.recipe_back }}</td>
+                        <td>{{ sample.glass_type }}</td>
+                        <td>{{ sample.length }}x{{ sample.thickness }}x{{ sample.height }}</td>
+                        <td class="center">{{ sample.cleaning }}</td>
+                        <td class="center">{{ sample.coating }}</td>
+                        <td class="center">{{ sample.annealing }}</td>
+                        <td class="center">{{ sample.done }}</td>
+                        <td class="center">
+                            {% if experiment and experiment.transmittance %}
+                                <a href="{{ experiment.transmittance }}" target="_blank">View</a>
+                            {% endif %}
+                        </td>
+                        <td class="center">
+                            {% if experiment and experiment.reflectance %}
+                                <a href="{{ experiment.reflectance }}" target="_blank">View</a>
+                            {% endif %}
+                        </td>
+                        <td class="center">
+                            {% if experiment and experiment.absorbance %}
+                                <a href="{{ experiment.absorbance }}" target="_blank">View</a>
+                            {% endif %}
+                        </td>
+                        <td class="center">
+                            {% if experiment and experiment.plqy %}
+                                <a href="{{ experiment.plqy }}" target="_blank">View</a>
+                            {% endif %}
+                        </td>
+                        <td class="center">
+                            {% if experiment and experiment.sem %}
+                                <a href="{{ experiment.sem }}" target="_blank">View</a>
+                            {% endif %}
+                        </td>
+                        <td class="center">
+                            {% if experiment and experiment.edx %}
+                                <a href="{{ experiment.edx }}" target="_blank">View</a>
+                            {% endif %}
+                        </td>
+                        <td class="center">
+                            {% if experiment and experiment.xrd %}
+                                <a href="{{ experiment.xrd }}" target="_blank">View</a>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
