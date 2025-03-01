@@ -491,6 +491,41 @@ def delete_prefix(prefix):
         flash('Error deleting prefix!', 'error')
     return redirect(url_for('prefix_table'))
 
+# Add this route after the login route
+@app.route('/register', methods=['POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        confirm_password = request.form['confirm_password']
+        
+        # Check if username already exists
+        if User.query.filter_by(username=username).first():
+            flash('Username already exists!', 'error')
+            return redirect(url_for('login'))
+        
+        # Check if passwords match
+        if password != confirm_password:
+            flash('Passwords do not match!', 'error')
+            return redirect(url_for('login'))
+        
+        # Create new user
+        new_user = User(
+            username=username,
+            password=generate_password_hash(password),
+            is_admin=False
+        )
+        
+        try:
+            db.session.add(new_user)
+            db.session.commit()
+            flash('Registration successful! Please login.', 'success')
+        except Exception as e:
+            db.session.rollback()
+            flash('Registration failed! Please try again.', 'error')
+            
+    return redirect(url_for('login'))
+
 if __name__ == '__main__':
     with app.app_context():
         # Create tables if they don't exist
