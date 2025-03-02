@@ -64,6 +64,45 @@ class Prefix(db.Model):
     prefix = db.Column(db.String(10), primary_key=True)
     full_form = db.Column(db.String(200), nullable=False)
 
+# Modify the trash models
+class SampleTrash(db.Model):
+    __tablename__ = 'sample_trash'
+    trash_id = db.Column(db.Integer, primary_key=True, autoincrement=True)  # New primary key
+    id = db.Column(db.String, nullable=False)  # Original sample ID
+    date = db.Column(db.String(10), nullable=False)
+    time = db.Column(db.String(8), nullable=False)
+    am_pm = db.Column(db.String(2), nullable=False)
+    recipe_front = db.Column(db.String(200), nullable=False)
+    recipe_back = db.Column(db.String(200), nullable=False)
+    glass_type = db.Column(db.String(100), nullable=False)
+    length = db.Column(db.Integer, nullable=False)
+    thickness = db.Column(db.Integer, nullable=False)
+    height = db.Column(db.Integer, nullable=False)
+    cleaning = db.Column(db.String(1), default='N')
+    coating = db.Column(db.String(1), default='N')
+    annealing = db.Column(db.String(1), default='N')
+    done = db.Column(db.String(1), default='N')
+    deleted_at = db.Column(db.DateTime, default=datetime.utcnow)
+    deleted_by = db.Column(db.String(80))
+
+class ExperimentTrash(db.Model):
+    __tablename__ = 'experiment_trash'
+    trash_id = db.Column(db.Integer, primary_key=True, autoincrement=True)  # New primary key
+    id = db.Column(db.String(100), nullable=False)  # Original experiment ID
+    sample_trash_id = db.Column(db.Integer, db.ForeignKey('sample_trash.trash_id'))  # Reference to SampleTrash
+    transmittance = db.Column(db.String(500))
+    reflectance = db.Column(db.String(500))
+    absorbance = db.Column(db.String(500))
+    plqy = db.Column(db.String(500))
+    sem = db.Column(db.String(500))
+    edx = db.Column(db.String(500))
+    xrd = db.Column(db.String(500))
+    deleted_at = db.Column(db.DateTime, default=datetime.utcnow)
+    deleted_by = db.Column(db.String(80))
+
+    # Add relationship to SampleTrash
+    sample_trash = db.relationship('SampleTrash', backref='experiment_trash')
+
 # Add these routes at the beginning of your app
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -170,9 +209,60 @@ def edit_sample(id):
 @app.route('/delete/<string:id>')
 @login_required
 def delete_sample(id):
-    sample = Sample.query.get_or_404(id)
-    db.session.delete(sample)
-    db.session.commit()
+    try:
+        # Get the sample and its experiment
+        sample = Sample.query.get_or_404(id)
+        experiment = Experiment.query.get(id)
+        
+        # Create trash records
+        sample_trash = SampleTrash(
+            id=sample.id,
+            date=sample.date,
+            time=sample.time,
+            am_pm=sample.am_pm,
+            recipe_front=sample.recipe_front,
+            recipe_back=sample.recipe_back,
+            glass_type=sample.glass_type,
+            length=sample.length,
+            thickness=sample.thickness,
+            height=sample.height,
+            cleaning=sample.cleaning,
+            coating=sample.coating,
+            annealing=sample.annealing,
+            done=sample.done,
+            deleted_by=session.get('username')
+        )
+        
+        # First add the sample trash record
+        db.session.add(sample_trash)
+        db.session.flush()  # This will set the trash_id
+        
+        if experiment:
+            experiment_trash = ExperimentTrash(
+                id=experiment.id,
+                sample_trash_id=sample_trash.trash_id,  # Link to the sample trash record
+                transmittance=experiment.transmittance,
+                reflectance=experiment.reflectance,
+                absorbance=experiment.absorbance,
+                plqy=experiment.plqy,
+                sem=experiment.sem,
+                edx=experiment.edx,
+                xrd=experiment.xrd,
+                deleted_by=session.get('username')
+            )
+            db.session.add(experiment_trash)
+            db.session.delete(experiment)
+            
+        # Delete the original sample
+        db.session.delete(sample)
+        db.session.commit()
+        flash('Record moved to trash successfully!', 'success')
+        
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Error deleting record: {str(e)}', 'error')
+        print(f"Error: {str(e)}")
+        
     return redirect(url_for('index'))
 
 @app.route('/experiments')
@@ -525,6 +615,77 @@ def register():
             flash('Registration failed! Please try again.', 'error')
             
     return redirect(url_for('login'))
+
+# Add route to view trash
+@app.route('/trash')
+@login_required
+def view_trash():
+    # Get all trash records with their deletion info
+    trash_records = db.session.query(SampleTrash, ExperimentTrash)\
+        .outerjoin(ExperimentTrash, SampleTrash.trash_id == ExperimentTrash.sample_trash_id)\
+        .order_by(SampleTrash.deleted_at.desc())\
+        .all()
+    return render_template('trash.html', trash_records=trash_records)
+
+# Add route to restore from trash
+@app.route('/restore/<int:trash_id>')  # Note: Changed to int:trash_id
+@login_required
+def restore_from_trash(trash_id):
+    try:
+        # Get trash records
+        sample_trash = SampleTrash.query.get_or_404(trash_id)
+        experiment_trash = ExperimentTrash.query.filter_by(sample_trash_id=trash_id).first()
+        
+        # Check if a sample with this ID already exists
+        if Sample.query.get(sample_trash.id):
+            flash(f'A sample with ID {sample_trash.id} already exists!', 'error')
+            return redirect(url_for('view_trash'))
+        
+        # Restore sample
+        sample = Sample(
+            id=sample_trash.id,
+            date=sample_trash.date,
+            time=sample_trash.time,
+            am_pm=sample_trash.am_pm,
+            recipe_front=sample_trash.recipe_front,
+            recipe_back=sample_trash.recipe_back,
+            glass_type=sample_trash.glass_type,
+            length=sample_trash.length,
+            thickness=sample_trash.thickness,
+            height=sample_trash.height,
+            cleaning=sample_trash.cleaning,
+            coating=sample_trash.coating,
+            annealing=sample_trash.annealing,
+            done=sample_trash.done
+        )
+        db.session.add(sample)
+        
+        # Restore experiment if it exists
+        if experiment_trash:
+            experiment = Experiment(
+                id=experiment_trash.id,
+                transmittance=experiment_trash.transmittance,
+                reflectance=experiment_trash.reflectance,
+                absorbance=experiment_trash.absorbance,
+                plqy=experiment_trash.plqy,
+                sem=experiment_trash.sem,
+                edx=experiment_trash.edx,
+                xrd=experiment_trash.xrd
+            )
+            db.session.add(experiment)
+            db.session.delete(experiment_trash)
+            
+        # Delete trash records
+        db.session.delete(sample_trash)
+        db.session.commit()
+        flash('Record restored successfully!', 'success')
+        
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Error restoring record: {str(e)}', 'error')
+        print(f"Error: {str(e)}")
+        
+    return redirect(url_for('view_trash'))
 
 if __name__ == '__main__':
     with app.app_context():

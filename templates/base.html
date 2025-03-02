@@ -37,6 +37,12 @@
                     </svg>
                     Lookup Table
                 </a>
+                <a href="{{ url_for('view_trash') }}" class="btn-blue">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M2 4h12M6 4V2h4v2M4 4v10h8V4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Trash
+                </a>
             </div>
         </div>
         {% block content %}{% endblock %}
