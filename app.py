@@ -3,11 +3,19 @@ from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
+from config import Config, DevelopmentConfig, ProductionConfig, ReplitConfig
+import os
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:AWI123@localhost/Project_Tracker'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SECRET_KEY'] = 'your-secret-key-here'  # Change this to a secure secret key
+
+# Determine which configuration to use
+if os.environ.get('REPLIT_DB_URL'):
+    app.config.from_object(ReplitConfig)
+elif os.environ.get('FLASK_ENV') == 'production':
+    app.config.from_object(ProductionConfig)
+else:
+    app.config.from_object(DevelopmentConfig)
+
 db = SQLAlchemy(app)
 
 # Add User model for authentication
@@ -599,10 +607,10 @@ def register():
             flash('Passwords do not match!', 'error')
             return redirect(url_for('login'))
         
-        # Create new user
+        # Create new user with sha256 method
         new_user = User(
             username=username,
-            password=generate_password_hash(password),
+            password=generate_password_hash(password, method='sha256'),
             is_admin=False
         )
         
@@ -696,7 +704,7 @@ if __name__ == '__main__':
         if not User.query.filter_by(username='admin').first():
             admin_user = User(
                 username='admin',
-                password=generate_password_hash('admin123'),
+                password=generate_password_hash('admin123', method='sha256'),
                 is_admin=True
             )
             db.session.add(admin_user)
