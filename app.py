@@ -7,6 +7,25 @@ from config import Config, DevelopmentConfig, ProductionConfig, ReplitConfig
 import os
 
 app = Flask(__name__)
+<<<<<<< HEAD
+# Database configuration
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Use Replit PostgreSQL connection if available
+if 'DATABASE_URL' in os.environ:
+    # Use Replit PostgreSQL
+    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ['DATABASE_URL']
+else:
+    # Use local development database as fallback
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///project_tracker.db'
+
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-here')  # Change this to a secure secret key
+=======
 
 # Determine which configuration to use
 if os.environ.get('REPLIT_DB_URL'):
@@ -16,7 +35,14 @@ elif os.environ.get('FLASK_ENV') == 'production':
 else:
     app.config.from_object(DevelopmentConfig)
 
+>>>>>>> ed6d4b6c2d8e6d9fa8f8c15149ecbf417cc0fc02
 db = SQLAlchemy(app)
+
+# Import Supabase config for additional features
+try:
+    from supabase_config import supabase
+except ImportError:
+    supabase = None
 
 # Add User model for authentication
 class User(db.Model):
@@ -710,4 +736,9 @@ if __name__ == '__main__':
             db.session.add(admin_user)
             db.session.commit()
             print("Admin user created successfully!")
-    app.run(debug=True) 
+    
+    # For local development, you can use debug=True
+    # For deployment, we need to listen on all interfaces (0.0.0.0)
+    import os
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False) 
