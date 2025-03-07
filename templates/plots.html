@@ -1,0 +1,505 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Experimental Data Plots</h2>
+    
+    <div class="row mb-4">
+        <!-- Plot type selector -->
+        <div class="col-md-3">
+            <div class="form-group">
+                <label for="plotType">Select Plot Type:</label>
+                <select class="form-control" id="plotType" onchange="updateSampleIds()">
+                    <option value="transmittance">Transmittance</option>
+                    <option value="reflectance">Reflectance</option>
+                    <option value="absorbance">Absorbance</option>
+                    <option value="plqy">PLQY</option>
+                    <option value="sem">SEM</option>
+                    <option value="edx">EDX</option>
+                    <option value="xrd">XRD</option>
+                </select>
+            </div>
+        </div>
+        
+        <!-- Sample ID filter -->
+        <div class="col-md-3">
+            <div class="form-group">
+                <label for="sampleFilter">Filter by Sample ID:</label>
+                <select class="form-control" id="sampleFilter" onchange="updatePlot()">
+                    <option value="all">All Samples</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Swap Axes Button -->
+        <div class="col-md-3">
+            <div class="form-group">
+                <label>Plot Controls:</label>
+                <button class="btn btn-secondary form-control" onclick="swapAxes()">Swap X/Y Axes</button>
+            </div>
+        </div>
+
+        <!-- CSV File Upload -->
+        <div class="col-md-3">
+            <div class="form-group">
+                <label for="csvFile">Upload CSV Data:</label>
+                <input type="file" class="form-control-file" id="csvFile" accept=".csv" onchange="handleFileUpload(this)">
+            </div>
+        </div>
+    </div>
+
+    <!-- Column selector container -->
+    <div id="columnSelector" style="display: none;" class="row mb-4">
+        <div class="col-md-4">
+            <div class="form-group">
+                <label for="xColumn">X-axis Column:</label>
+                <select class="form-control" id="xColumn" onchange="updateCSVPlot()"></select>
+            </div>
+        </div>
+        <div class="col-md-8">
+            <div class="form-group">
+                <label>Y-axis Columns:</label>
+                <div id="yColumns" class="ml-3">
+                    <!-- Checkboxes will be dynamically added here -->
+                </div>
+                <div class="mt-2">
+                    <button class="btn btn-primary btn-sm" onclick="selectAllYColumns()">Select All Y Columns</button>
+                    <button class="btn btn-secondary btn-sm" onclick="deselectAllYColumns()">Deselect All</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Plot container -->
+    <div id="plotContainer" class="mb-4" style="height: 500px;"></div>
+</div>
+
+<!-- Include Plotly.js and Papa Parse for CSV parsing -->
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+
+<script>
+    // Store the plot data globally
+    let plotData;
+    try {
+        console.log('Raw plot_data:', '{{ plot_data|safe }}');
+        plotData = JSON.parse('{{ plot_data|safe|tojson }}');
+        console.log('Parsed plotData:', plotData);
+    } catch (error) {
+        console.error('Error parsing plot data:', error);
+        plotData = {};
+    }
+    window.plotData = plotData;
+    let csvData = null;
+    let axesSwapped = false;
+    
+    // Function to swap axes
+    function swapAxes() {
+        const plotContainer = document.getElementById('plotContainer');
+        if (!plotContainer.data) return;
+
+        axesSwapped = !axesSwapped;
+        
+        // Swap x and y data for each trace
+        const newTraces = plotContainer.data.map(trace => ({
+            ...trace,
+            x: trace.y,
+            y: trace.x
+        }));
+
+        // Swap axis titles
+        const newLayout = {
+            ...plotContainer.layout,
+            xaxis: {
+                ...plotContainer.layout.yaxis,
+                title: plotContainer.layout.yaxis.title
+            },
+            yaxis: {
+                ...plotContainer.layout.xaxis,
+                title: plotContainer.layout.xaxis.title
+            }
+        };
+
+        Plotly.react(plotContainer, newTraces, newLayout);
+    }
+    
+    // Function to handle CSV file upload
+    function handleFileUpload(input) {
+        const file = input.files[0];
+        if (file) {
+            Papa.parse(file, {
+                complete: function(results) {
+                    console.log("CSV Parse Results:", results);
+                    csvData = results.data;
+                    
+                    // Get headers (first row)
+                    const headers = csvData[0];
+                    
+                    // Update X-axis column selector
+                    const xSelect = document.getElementById('xColumn');
+                    xSelect.innerHTML = '';
+                    headers.forEach((header, index) => {
+                        xSelect.add(new Option(header, index));
+                    });
+                    
+                    // Create Y-axis column checkboxes
+                    const yColumnsDiv = document.getElementById('yColumns');
+                    yColumnsDiv.innerHTML = '';
+                    headers.forEach((header, index) => {
+                        if (index !== 0) { // Skip first column as it's selected for X by default
+                            const div = document.createElement('div');
+                            div.className = 'form-check';
+                            
+                            const checkbox = document.createElement('input');
+                            checkbox.type = 'checkbox';
+                            checkbox.id = `y-column-${index}`;
+                            checkbox.className = 'form-check-input y-column-checkbox';
+                            checkbox.value = index;
+                            checkbox.checked = true; // Check by default
+                            checkbox.onchange = updateCSVPlot;
+                            
+                            const label = document.createElement('label');
+                            label.className = 'form-check-label';
+                            label.htmlFor = `y-column-${index}`;
+                            label.textContent = header;
+                            
+                            div.appendChild(checkbox);
+                            div.appendChild(label);
+                            yColumnsDiv.appendChild(div);
+                        }
+                    });
+                    
+                    // Show column selector
+                    document.getElementById('columnSelector').style.display = 'block';
+                    
+                    // Update plot
+                    updateCSVPlot();
+                },
+                header: false,
+                skipEmptyLines: true,
+                dynamicTyping: true // Automatically convert numbers
+            });
+        }
+    }
+
+    // Function to select all Y columns
+    function selectAllYColumns() {
+        document.querySelectorAll('.y-column-checkbox').forEach(checkbox => {
+            checkbox.checked = true;
+        });
+        updateCSVPlot();
+    }
+
+    // Function to deselect all Y columns
+    function deselectAllYColumns() {
+        document.querySelectorAll('.y-column-checkbox').forEach(checkbox => {
+            checkbox.checked = false;
+        });
+        updateCSVPlot();
+    }
+    
+    // Function to update plot with CSV data
+    function updateCSVPlot() {
+        if (!csvData) return;
+        
+        const xColumnIndex = parseInt(document.getElementById('xColumn').value);
+        const selectedYColumns = Array.from(document.querySelectorAll('.y-column-checkbox:checked'))
+            .map(checkbox => parseInt(checkbox.value));
+        
+        if (selectedYColumns.length === 0) {
+            document.getElementById('plotContainer').innerHTML = 
+                '<div class="alert alert-warning">Please select at least one Y-axis column to plot.</div>';
+            return;
+        }
+        
+        // Create traces for each selected Y column
+        const traces = selectedYColumns.map(yColumnIndex => {
+            // Extract data from selected columns
+            const data = csvData.slice(1).map(row => ({
+                x: row[xColumnIndex],
+                y: row[yColumnIndex]
+            })).filter(point => point.x != null && point.y != null && !isNaN(point.x) && !isNaN(point.y));
+            
+            return {
+                x: data.map(point => point.x),
+                y: data.map(point => point.y),
+                mode: 'lines+markers',
+                type: 'scatter',
+                name: csvData[0][yColumnIndex], // Use column header as trace name
+                marker: {
+                    size: 6
+                },
+                line: {
+                    width: 2
+                }
+            };
+        });
+        
+        // Plot layout
+        const layout = {
+            title: {
+                text: 'Multi-Column Plot',
+                font: { size: 24 }
+            },
+            xaxis: {
+                title: csvData[0][xColumnIndex],
+                tickfont: { size: 14 },
+                titlefont: { size: 16 }
+            },
+            yaxis: {
+                title: 'Values',
+                tickfont: { size: 14 },
+                titlefont: { size: 16 }
+            },
+            showlegend: true,
+            legend: {
+                x: 1.05,
+                xanchor: 'left',
+                y: 1,
+                bgcolor: 'rgba(255, 255, 255, 0.8)',
+                bordercolor: 'rgba(0, 0, 0, 0.2)',
+                borderwidth: 1
+            },
+            hovermode: 'closest',
+            margin: {
+                l: 80,
+                r: 150, // Increased right margin for legend
+                t: 100,
+                b: 80
+            }
+        };
+        
+        // Plot configuration
+        const config = {
+            responsive: true,
+            displayModeBar: true,
+            displaylogo: false,
+            modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+            toImageButtonOptions: {
+                format: 'png',
+                filename: 'multi_column_plot',
+                height: 800,
+                width: 1200,
+                scale: 2
+            }
+        };
+        
+        // Create the plot
+        Plotly.newPlot('plotContainer', traces, layout, config);
+    }
+    
+    // Function to update sample IDs in the filter dropdown
+    function updateSampleIds() {
+        const plotType = document.getElementById('plotType').value;
+        const sampleFilter = document.getElementById('sampleFilter');
+        const data = window.plotData[plotType];
+        
+        console.log('Updating sample IDs for plot type:', plotType);
+        console.log('Available data:', data);
+        
+        // Clear existing options except "All Samples"
+        sampleFilter.innerHTML = '<option value="all">All Samples</option>';
+        
+        if (data && data.length > 0) {
+            // Sort sample IDs alphabetically
+            const sortedData = [...data].sort((a, b) => a.id.localeCompare(b.id));
+            
+            // Add sample IDs to the filter dropdown
+            sortedData.forEach(sample => {
+                const option = document.createElement('option');
+                option.value = sample.id;
+                option.textContent = sample.id;
+                sampleFilter.appendChild(option);
+            });
+            console.log('Added sample IDs:', sortedData.map(s => s.id));
+        }
+        
+        // Update the plot with all samples
+        updatePlot();
+    }
+    
+    function updatePlot() {
+        const plotType = document.getElementById('plotType').value;
+        const selectedSampleId = document.getElementById('sampleFilter').value;
+        const data = window.plotData[plotType];
+        const plotContainer = document.getElementById('plotContainer');
+        
+        console.log('Updating plot with:', {
+            plotType,
+            selectedSampleId,
+            dataAvailable: !!data,
+            dataLength: data ? data.length : 0
+        });
+        
+        if (!data || data.length === 0) {
+            console.log('No data available for plot type:', plotType);
+            plotContainer.innerHTML = '<div class="alert alert-info">No data available for ' + plotType + '</div>';
+            return;
+        }
+
+        try {
+            // Filter data based on selected sample ID
+            const filteredData = selectedSampleId === 'all' ? data : data.filter(sample => sample.id === selectedSampleId);
+            console.log('Filtered Data:', filteredData);
+
+            if (filteredData.length === 0) {
+                plotContainer.innerHTML = '<div class="alert alert-warning">No data found for the selected sample.</div>';
+                return;
+            }
+
+            // Create traces for the plot
+            const traces = [];
+            for (const sample of filteredData) {
+                console.log('Processing sample:', sample.id);
+                console.log('Sample data:', sample.data);
+
+                try {
+                    // If data is a string, parse it
+                    let sampleData = sample.data;
+                    if (typeof sampleData === 'string') {
+                        try {
+                            sampleData = JSON.parse(sampleData);
+                            console.log('Parsed sample data:', sampleData);
+                        } catch (e) {
+                            console.error('Failed to parse sample data as JSON:', e);
+                            // Try parsing as CSV
+                            const lines = sampleData.trim().split('\n').map(line => line.trim().split(','));
+                            if (lines.length > 0) {
+                                sampleData = {
+                                    x: lines.map(line => parseFloat(line[0])),
+                                    y: lines.map(line => parseFloat(line[1]))
+                                };
+                                console.log('Parsed as CSV:', sampleData);
+                            }
+                        }
+                    }
+
+                    // Check if data is in the expected format
+                    if (!sampleData || (!Array.isArray(sampleData.x) && !Array.isArray(sampleData.y) && !Array.isArray(sampleData))) {
+                        console.error('Invalid data format for sample:', sample.id);
+                        continue;
+                    }
+
+                    let xValues, yValues;
+
+                    // Handle different data formats
+                    if (Array.isArray(sampleData.x) && Array.isArray(sampleData.y)) {
+                        // Format: {x: [...], y: [...]}
+                        xValues = sampleData.x;
+                        yValues = sampleData.y;
+                    } else if (Array.isArray(sampleData) && sampleData[0] && Array.isArray(sampleData[0])) {
+                        // Format: [[x1,y1], [x2,y2], ...]
+                        xValues = sampleData.map(point => point[0]);
+                        yValues = sampleData.map(point => point[1]);
+                    } else {
+                        // Format: [y1, y2, ...]
+                        yValues = sampleData;
+                        xValues = Array.from({length: yValues.length}, (_, i) => i);
+                    }
+
+                    console.log('Processed values:', { xValues, yValues });
+
+                    // Validate the data
+                    if (xValues && yValues && xValues.length === yValues.length && xValues.length > 0) {
+                        // Apply axis swapping if needed
+                        const traceX = axesSwapped ? yValues : xValues;
+                        const traceY = axesSwapped ? xValues : yValues;
+                        
+                        traces.push({
+                            name: sample.id,
+                            x: traceX,
+                            y: traceY,
+                            type: 'scatter',
+                            mode: 'lines+markers',
+                            marker: { size: 6 },
+                            line: { width: 2 }
+                        });
+                        console.log('Added trace for sample:', sample.id);
+                    } else {
+                        console.error('Invalid or empty data arrays for sample:', sample.id);
+                    }
+                } catch (error) {
+                    console.error('Error processing sample:', sample.id, error);
+                }
+            }
+
+            if (traces.length === 0) {
+                console.error('No valid traces created');
+                plotContainer.innerHTML = '<div class="alert alert-warning">Could not create plot. No valid data found.</div>';
+                return;
+            }
+
+            console.log('Final traces:', traces);
+
+            // Get axis titles based on plot type and swap state
+            const xAxisTitle = plotType === 'transmittance' ? 'Wavelength (nm)' : 'X Axis';
+            const yAxisTitle = plotType === 'transmittance' ? 'Transmittance (%)' : 'Y Axis';
+
+            // Plot layout
+            const layout = {
+                title: {
+                    text: plotType.charAt(0).toUpperCase() + plotType.slice(1) + ' Data' + 
+                          (selectedSampleId !== 'all' ? ` - Sample ${selectedSampleId}` : ''),
+                    font: { size: 24 },
+                    y: 0.95
+                },
+                xaxis: {
+                    title: axesSwapped ? yAxisTitle : xAxisTitle,
+                    tickfont: { size: 14 },
+                    titlefont: { size: 16 }
+                },
+                yaxis: {
+                    title: axesSwapped ? xAxisTitle : yAxisTitle,
+                    tickfont: { size: 14 },
+                    titlefont: { size: 16 }
+                },
+                showlegend: true,
+                legend: {
+                    x: 1.05,
+                    xanchor: 'left',
+                    y: 1,
+                    bgcolor: 'rgba(255, 255, 255, 0.8)',
+                    bordercolor: 'rgba(0, 0, 0, 0.2)',
+                    borderwidth: 1
+                },
+                hovermode: 'closest',
+                margin: {
+                    l: 80,
+                    r: 150,
+                    t: 60,
+                    b: 60
+                },
+                autosize: true
+            };
+
+            // Plot configuration
+            const config = {
+                responsive: true,
+                displayModeBar: true,
+                displaylogo: false,
+                modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+                toImageButtonOptions: {
+                    format: 'png',
+                    filename: `${plotType}_plot`,
+                    height: 800,
+                    width: 1200,
+                    scale: 2
+                }
+            };
+
+            console.log('Creating plot with:', { traces, layout, config });
+
+            // Create the plot
+            Plotly.newPlot(plotContainer, traces, layout, config);
+            console.log('Plot created successfully');
+            
+        } catch (error) {
+            console.error('Error in updatePlot:', error);
+            plotContainer.innerHTML = '<div class="alert alert-danger">Error creating plot: ' + error.message + '</div>';
+        }
+    }
+
+    // Initialize the sample IDs and plot when the page loads
+    document.addEventListener('DOMContentLoaded', updateSampleIds);
+</script>
+{% endblock %}

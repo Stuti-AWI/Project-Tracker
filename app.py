@@ -1,13 +1,20 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from config import Config, DevelopmentConfig, ProductionConfig, ReplitConfig
 import os
+from flask_mail import Mail, Message
+import secrets
+import plotly
+import plotly.express as px
+import plotly.graph_objects as go
+import pandas as pd
+import json
+import numpy as np
 
 app = Flask(__name__)
-<<<<<<< HEAD
 # Database configuration
 import os
 from dotenv import load_dotenv
@@ -25,18 +32,13 @@ else:
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-here')  # Change this to a secure secret key
-=======
-
-# Determine which configuration to use
-if os.environ.get('REPLIT_DB_URL'):
-    app.config.from_object(ReplitConfig)
-elif os.environ.get('FLASK_ENV') == 'production':
-    app.config.from_object(ProductionConfig)
-else:
-    app.config.from_object(DevelopmentConfig)
-
->>>>>>> ed6d4b6c2d8e6d9fa8f8c15149ecbf417cc0fc02
+app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+app.config['MAIL_PORT'] = 587
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USERNAME'] = os.getenv('EMAIL_ADDRESS')
+app.config['MAIL_PASSWORD'] = os.getenv('EMAIL_PASSWORD')
 db = SQLAlchemy(app)
+mail = Mail(app)
 
 # Import Supabase config for additional features
 try:
@@ -44,12 +46,24 @@ try:
 except ImportError:
     supabase = None
 
+# Add this decorator definition at the top of your file, after imports
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get('is_admin', False):
+            flash('This operation requires admin privileges', 'error')
+            return redirect(url_for('index'))
+        return f(*args, **kwargs)
+    return decorated_function
+
 # Add User model for authentication
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
-    password = db.Column(db.String(200), nullable=False)
+    password = db.Column(db.String(120), nullable=False)
     is_admin = db.Column(db.Boolean, default=False)
+    reset_token = db.Column(db.String(100), unique=True, nullable=True)
+    reset_token_expiry = db.Column(db.DateTime, nullable=True)
 
 # Login required decorator
 def login_required(f):
@@ -63,10 +77,12 @@ def login_required(f):
 # Define the Sample model
 class Sample(db.Model):
     __tablename__ = 'sample'
-    id = db.Column(db.String, primary_key=True)  # Remove length constraint
-    date = db.Column(db.String(10), nullable=False)  # MM-DD-YYYY format
-    time = db.Column(db.String(8), nullable=False)  # HH:MM format
-    am_pm = db.Column(db.String(2), nullable=False)  # AM/PM
+    id = db.Column(db.String(100), primary_key=True)
+    date = db.Column(db.String(10), nullable=False)
+    time = db.Column(db.String(8), nullable=False)
+    am_pm = db.Column(db.String(2), nullable=False)
+    ERB = db.Column(db.Text, nullable=True)
+    ERB_description = db.Column(db.Text, nullable=True)
     recipe_front = db.Column(db.String(200), nullable=False)
     recipe_back = db.Column(db.String(200), nullable=False)
     glass_type = db.Column(db.String(100), nullable=False)
@@ -101,11 +117,12 @@ class Prefix(db.Model):
 # Modify the trash models
 class SampleTrash(db.Model):
     __tablename__ = 'sample_trash'
-    trash_id = db.Column(db.Integer, primary_key=True, autoincrement=True)  # New primary key
-    id = db.Column(db.String, nullable=False)  # Original sample ID
+    id = db.Column(db.String, primary_key=True)
     date = db.Column(db.String(10), nullable=False)
     time = db.Column(db.String(8), nullable=False)
     am_pm = db.Column(db.String(2), nullable=False)
+    ERB = db.Column(db.Text, nullable=True)
+    ERB_description = db.Column(db.Text, nullable=True)
     recipe_front = db.Column(db.String(200), nullable=False)
     recipe_back = db.Column(db.String(200), nullable=False)
     glass_type = db.Column(db.String(100), nullable=False)
@@ -118,12 +135,12 @@ class SampleTrash(db.Model):
     done = db.Column(db.String(1), default='N')
     deleted_at = db.Column(db.DateTime, default=datetime.utcnow)
     deleted_by = db.Column(db.String(80))
+    # Add relationship to ExperimentTrash
+    experiment = db.relationship('ExperimentTrash', backref='sample_trash', uselist=False)
 
 class ExperimentTrash(db.Model):
     __tablename__ = 'experiment_trash'
-    trash_id = db.Column(db.Integer, primary_key=True, autoincrement=True)  # New primary key
-    id = db.Column(db.String(100), nullable=False)  # Original experiment ID
-    sample_trash_id = db.Column(db.Integer, db.ForeignKey('sample_trash.trash_id'))  # Reference to SampleTrash
+    id = db.Column(db.String(100), db.ForeignKey('sample_trash.id'), primary_key=True)
     transmittance = db.Column(db.String(500))
     reflectance = db.Column(db.String(500))
     absorbance = db.Column(db.String(500))
@@ -133,9 +150,6 @@ class ExperimentTrash(db.Model):
     xrd = db.Column(db.String(500))
     deleted_at = db.Column(db.DateTime, default=datetime.utcnow)
     deleted_by = db.Column(db.String(80))
-
-    # Add relationship to SampleTrash
-    sample_trash = db.relationship('SampleTrash', backref='experiment_trash')
 
 # Add these routes at the beginning of your app
 @app.route('/login', methods=['GET', 'POST'])
@@ -184,6 +198,8 @@ def add_sample():
             date=request.form['date'],
             time=request.form['time'],
             am_pm=request.form['am_pm'],
+            ERB=request.form.get('ERB'),  # Add ERB field
+            ERB_description=request.form.get('ERB_description'),  # Add ERB description field
             recipe_front=request.form['recipe_front'],
             recipe_back=request.form['recipe_back'],
             glass_type=request.form['glass_type'],
@@ -225,6 +241,8 @@ def edit_sample(id):
         sample.date = request.form['date']
         sample.time = request.form['time']
         sample.am_pm = request.form['am_pm']
+        sample.ERB = request.form.get('ERB')  # Add ERB field
+        sample.ERB_description = request.form.get('ERB_description')  # Add ERB description field
         sample.recipe_front = request.form['recipe_front']
         sample.recipe_back = request.form['recipe_back']
         sample.glass_type = request.form['glass_type']
@@ -254,6 +272,8 @@ def delete_sample(id):
             date=sample.date,
             time=sample.time,
             am_pm=sample.am_pm,
+            ERB=sample.ERB,
+            ERB_description=sample.ERB_description,
             recipe_front=sample.recipe_front,
             recipe_back=sample.recipe_back,
             glass_type=sample.glass_type,
@@ -269,12 +289,10 @@ def delete_sample(id):
         
         # First add the sample trash record
         db.session.add(sample_trash)
-        db.session.flush()  # This will set the trash_id
         
         if experiment:
             experiment_trash = ExperimentTrash(
                 id=experiment.id,
-                sample_trash_id=sample_trash.trash_id,  # Link to the sample trash record
                 transmittance=experiment.transmittance,
                 reflectance=experiment.reflectance,
                 absorbance=experiment.absorbance,
@@ -310,19 +328,44 @@ def experiments():
 def add_experiment(sample_id):
     sample = Sample.query.get_or_404(sample_id)
     if request.method == 'POST':
+        def process_data(file_data):
+            if not file_data:
+                return None
+                
+            try:
+                content = file_data.read().decode('utf-8')
+                lines = content.strip().split('\n')
+                data = []
+                for line in lines:
+                    values = line.strip().split(',')
+                    if len(values) >= 2:
+                        try:
+                            x = float(values[0])
+                            y = float(values[1])
+                            data.append([x, y])
+                        except ValueError:
+                            continue
+                return json.dumps(data)
+            except Exception as e:
+                print(f"Error processing data: {str(e)}")
+                return None
+
+        # Process each measurement type
         experiment = Experiment(
             id=sample_id,
-            transmittance=request.form['transmittance'],
-            reflectance=request.form['reflectance'],
-            absorbance=request.form['absorbance'],
-            plqy=request.form['plqy'],
-            sem=request.form['sem'],
-            edx=request.form['edx'],
-            xrd=request.form['xrd']
+            transmittance=process_data(request.files.get('transmittance_file')),
+            reflectance=process_data(request.files.get('reflectance_file')),
+            absorbance=process_data(request.files.get('absorbance_file')),
+            plqy=process_data(request.files.get('plqy_file')),
+            sem=request.form.get('sem'),
+            edx=request.form.get('edx'),
+            xrd=request.form.get('xrd')
         )
+        
         db.session.add(experiment)
         db.session.commit()
         return redirect(url_for('experiments'))
+        
     return render_template('add_experiment.html', sample=sample)
 
 @app.route('/edit_experiment/<string:id>', methods=['GET', 'POST'])
@@ -617,38 +660,28 @@ def delete_prefix(prefix):
 
 # Add this route after the login route
 @app.route('/register', methods=['POST'])
+@login_required
+@admin_required
 def register():
-    if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        confirm_password = request.form['confirm_password']
-        
-        # Check if username already exists
-        if User.query.filter_by(username=username).first():
-            flash('Username already exists!', 'error')
-            return redirect(url_for('login'))
-        
-        # Check if passwords match
-        if password != confirm_password:
-            flash('Passwords do not match!', 'error')
-            return redirect(url_for('login'))
-        
-        # Create new user with sha256 method
-        new_user = User(
-            username=username,
-            password=generate_password_hash(password, method='sha256'),
-            is_admin=False
+    name = request.form.get('name')
+    prefix = request.form.get('prefix')
+    erb = request.form.get('ERB')  # Get ERB from form
+    erb_description = request.form.get('ERB_description')  # Get ERB description from form
+    
+    if name and prefix:
+        new_sample = Sample(
+            name=name, 
+            prefix=prefix,
+            ERB=erb,
+            ERB_description=erb_description
         )
-        
-        try:
-            db.session.add(new_user)
-            db.session.commit()
-            flash('Registration successful! Please login.', 'success')
-        except Exception as e:
-            db.session.rollback()
-            flash('Registration failed! Please try again.', 'error')
-            
-    return redirect(url_for('login'))
+        db.session.add(new_sample)
+        db.session.commit()
+        flash('Sample registered successfully!', 'success')
+    else:
+        flash('Name and prefix are required!', 'error')
+    
+    return redirect(url_for('index'))
 
 # Add route to view trash
 @app.route('/trash')
@@ -656,19 +689,19 @@ def register():
 def view_trash():
     # Get all trash records with their deletion info
     trash_records = db.session.query(SampleTrash, ExperimentTrash)\
-        .outerjoin(ExperimentTrash, SampleTrash.trash_id == ExperimentTrash.sample_trash_id)\
+        .outerjoin(ExperimentTrash, SampleTrash.id == ExperimentTrash.id)\
         .order_by(SampleTrash.deleted_at.desc())\
         .all()
     return render_template('trash.html', trash_records=trash_records)
 
 # Add route to restore from trash
-@app.route('/restore/<int:trash_id>')  # Note: Changed to int:trash_id
+@app.route('/restore/<string:id>')  # Changed from int:trash_id to string:id
 @login_required
-def restore_from_trash(trash_id):
+def restore_from_trash(id):
     try:
         # Get trash records
-        sample_trash = SampleTrash.query.get_or_404(trash_id)
-        experiment_trash = ExperimentTrash.query.filter_by(sample_trash_id=trash_id).first()
+        sample_trash = SampleTrash.query.get_or_404(id)
+        experiment_trash = ExperimentTrash.query.get(id)
         
         # Check if a sample with this ID already exists
         if Sample.query.get(sample_trash.id):
@@ -681,6 +714,8 @@ def restore_from_trash(trash_id):
             date=sample_trash.date,
             time=sample_trash.time,
             am_pm=sample_trash.am_pm,
+            ERB=sample_trash.ERB,
+            ERB_description=sample_trash.ERB_description,
             recipe_front=sample_trash.recipe_front,
             recipe_back=sample_trash.recipe_back,
             glass_type=sample_trash.glass_type,
@@ -721,9 +756,103 @@ def restore_from_trash(trash_id):
         
     return redirect(url_for('view_trash'))
 
+# Add these new routes for password reset
+@app.route('/forgot_password', methods=['GET', 'POST'])
+def forgot_password():
+    if request.method == 'POST':
+        email = request.form['email']
+        user = User.query.filter_by(username=email).first()
+        
+        if user:
+            # Generate reset token
+            token = secrets.token_urlsafe(32)
+            user.reset_token = token
+            user.reset_token_expiry = datetime.utcnow() + timedelta(hours=1)
+            db.session.commit()
+            
+            # Send reset email
+            reset_url = url_for('reset_password', token=token, _external=True)
+            msg = Message('Password Reset Request',
+                        sender=os.getenv('EMAIL_ADDRESS'),
+                        recipients=[email])
+            msg.body = f'''To reset your password, visit the following link:
+{reset_url}
+
+If you did not make this request, please ignore this email.
+'''
+            mail.send(msg)
+            flash('Reset instructions sent to your email.', 'info')
+            return redirect(url_for('login'))
+        
+        flash('Email address not found.', 'error')
+    return render_template('forgot_password.html')
+
+@app.route('/reset_password/<token>', methods=['GET', 'POST'])
+def reset_password(token):
+    user = User.query.filter_by(reset_token=token).first()
+    if user is None or user.reset_token_expiry < datetime.utcnow():
+        flash('Invalid or expired reset token.', 'error')
+        return redirect(url_for('login'))
+    
+    if request.method == 'POST':
+        password = request.form['password']
+        confirm_password = request.form['confirm_password']
+        
+        if password != confirm_password:
+            flash('Passwords do not match.', 'error')
+        else:
+            user.password = generate_password_hash(password, method='sha256')
+            user.reset_token = None
+            user.reset_token_expiry = None
+            db.session.commit()
+            flash('Your password has been updated.', 'success')
+            return redirect(url_for('login'))
+            
+    return render_template('reset_password.html')
+
+@app.route('/plots')
+@login_required
+def plots():
+    # Query all experiments
+    experiments = db.session.query(Sample, Experiment).join(Experiment).all()
+    
+    # Initialize empty lists for each measurement type
+    plot_data = {
+        'transmittance': [],
+        'reflectance': [],
+        'absorbance': [],
+        'plqy': [],
+        'sem': [],
+        'edx': [],
+        'xrd': []
+    }
+    
+    # Process each experiment
+    for sample, experiment in experiments:
+        for measurement_type in plot_data.keys():
+            data = getattr(experiment, measurement_type)
+            if data:  # If data exists for this measurement
+                try:
+                    # Try to parse the data (assuming it's stored as a string representation of data)
+                    data_dict = {
+                        'id': sample.id,
+                        'data': data,
+                        'recipe_front': sample.recipe_front,
+                        'recipe_back': sample.recipe_back,
+                        'glass_type': sample.glass_type
+                    }
+                    plot_data[measurement_type].append(data_dict)
+                except:
+                    continue
+    
+    # Convert plot data to JSON for JavaScript
+    plot_json = json.dumps(plot_data)
+    
+    return render_template('plots.html', plot_data=plot_json)
+
 if __name__ == '__main__':
     with app.app_context():
-        # Create tables if they don't exist
+        # Create tables only if they don't exist
         db.create_all()
         
         # Create admin user if it doesn't exist
@@ -737,8 +866,5 @@ if __name__ == '__main__':
             db.session.commit()
             print("Admin user created successfully!")
     
-    # For local development, you can use debug=True
-    # For deployment, we need to listen on all interfaces (0.0.0.0)
-    import os
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False) 
+    port = int(os.environ.get('PORT', 5003))
+    app.run(host='0.0.0.0', port=port, debug=True)  # Set debug=True during development

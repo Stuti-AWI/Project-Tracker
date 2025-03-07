@@ -1013,3 +1013,105 @@ td:hover {
     color: #721c24;
     border: 1px solid #f5c6cb;
 }
+
+/* Add or update these styles */
+.process-header {
+    text-align: center;
+    background-color: #f8f9fa;
+    border-bottom: none !important;
+}
+
+.process-headers th {
+    text-align: center;
+    font-weight: normal;
+    border-top: none !important;
+    background-color: #f8f9fa;
+}
+
+.process-status {
+    text-align: center;
+    font-weight: bold;
+}
+
+.status-yes {
+    color: #28a745;
+    background-color: #d4edda;
+}
+
+.status-no {
+    color: #dc3545;
+    background-color: #f8d7da;
+}
+
+/* Adjust table header spacing */
+#sampleTable th {
+    padding: 12px;
+    white-space: nowrap;
+}
+
+/* Center align specific columns */
+#sampleTable td.process-status {
+    width: 80px;
+    min-width: 80px;
+}
+
+/* Add borders to process columns */
+#sampleTable th[colspan="3"].process-header {
+    border: 1px solid #dee2e6;
+    border-bottom: none;
+}
+
+.process-headers th {
+    border: 1px solid #dee2e6;
+    border-top: none;
+}
+
+/* Date input styling */
+.date-input-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.calendar-picker {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.calendar-toggle {
+    background: none;
+    border: none;
+    padding: 5px;
+    cursor: pointer;
+    font-size: 1.2em;
+    position: absolute;
+    right: 5px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.calendar-toggle:hover {
+    opacity: 0.8;
+}
+
+/* Style the text input */
+#dateDisplay {
+    padding-right: 35px; /* Make room for the calendar icon */
+}
+
+/* Make sure the container properly contains the calendar icon */
+.form-group {
+    position: relative;
+}
+
+/* Improve calendar icon visibility */
+.calendar-toggle {
+    color: #666;
+    transition: color 0.2s;
+}
+
+.calendar-toggle:hover {
+    color: #333;
+}

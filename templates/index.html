@@ -7,8 +7,6 @@
 {% block content %}
 <div class="add-button">
     <a href="{{ url_for('add_sample') }}" class="btn-green">Add New Sample</a>
-    <a href="{{ url_for('experiments') }}" class="btn-blue">Experiment Tracker</a>
-    <a href="{{ url_for('combined_view') }}" class="btn-view">Combined View</a>
 </div>
 
 <!-- Add scroll hint -->
@@ -23,6 +21,8 @@
                 <th>ID</th>
                 <th>Date</th>
                 <th>Time</th>
+                <th>ERB</th>
+                <th>ERB Description</th>
                 <th>Recipe Front</th>
                 <th>Recipe Back</th>
                 <th>Glass Type</th>
@@ -32,7 +32,7 @@
                 <th>Actions</th>
             </tr>
             <tr class="process-headers">
-                <th colspan="7"></th>
+                <th colspan="9"></th>
                 <th>Cleaning</th>
                 <th>Coating</th>
                 <th>Annealing</th>
@@ -45,6 +45,8 @@
                 <td>{{ sample.id }}</td>
                 <td>{{ sample.date }}</td>
                 <td>{{ sample.time }} {{ sample.am_pm }}</td>
+                <td>{{ sample.ERB }}</td>
+                <td>{{ sample.ERB_description }}</td>
                 <td>{{ sample.recipe_front }}</td>
                 <td>{{ sample.recipe_back }}</td>
                 <td>{{ sample.glass_type }}</td>

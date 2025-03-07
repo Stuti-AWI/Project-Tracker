@@ -23,16 +23,40 @@
                         <input type="text" name="id" required>
                     </div>
                     <div class="form-group">
+                        <label>ERB:</label>
+                        <input type="text" name="ERB" placeholder="Enter ERB">
+                    </div>
+                    <div class="form-group">
+                        <label>ERB Description:</label>
+                        <textarea name="ERB_description" placeholder="Enter ERB description" rows="3"></textarea>
+                    </div>
+                    <div class="form-group">
                         <label>Date: <span class="required">*</span></label>
-                        <input type="text" name="date" id="date" placeholder="MM-DD-YYYY" required readonly>
+                        <div class="date-input-container">
+                            <input type="text" 
+                                   name="date" 
+                                   id="dateDisplay" 
+                                   placeholder="MM/DD/YYYY" 
+                                   pattern="(0[1-9]|1[0-2])/(0[1-9]|[12][0-9]|3[01])/[0-9]{4}"
+                                   title="Please enter date in MM/DD/YYYY format"
+                                   required>
+                            <input type="date" 
+                                   id="datePicker" 
+                                   class="calendar-picker"
+                                   aria-label="Select date">
+                            <button type="button" class="calendar-toggle" onclick="document.getElementById('datePicker').showPicker()">
+                                📅
+                            </button>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label for="time">Time:<span class="required">*</span></label>
-                        <input type="time" id="time" name="time" required>
-                        <select name="am_pm" required>
-                            <option value="AM">AM</option>
-                            <option value="PM">PM</option>
-                        </select>
+                        <input type="time" 
+                               id="time" 
+                               name="time" 
+                               required 
+                               onchange="updateAmPm(this)">
+                        <input type="hidden" name="am_pm" id="am_pm">
                     </div>
                     <div class="form-group">
                         <label>Recipe Front: <span class="required">*</span></label>
@@ -114,34 +138,90 @@
         </form>
     </div>
     <script>
-        // Auto-populate current date in MM-DD-YYYY format
         window.onload = function() {
-            const dateInput = document.getElementById('date');
+            initializeDateAndTime();
+        };
+
+        function initializeDateAndTime() {
+            const dateDisplay = document.getElementById('dateDisplay');
+            const datePicker = document.getElementById('datePicker');
             const timeInput = document.getElementById('time');
+            const amPmInput = document.getElementById('am_pm');
             const now = new Date();
             
-            // Format date
+            // Format and set default date
             const month = String(now.getMonth() + 1).padStart(2, '0');
             const day = String(now.getDate()).padStart(2, '0');
             const year = now.getFullYear();
-            dateInput.value = `${month}-${day}-${year}`;
             
-            // Format time
-            let hours = now.getHours();
+            dateDisplay.value = `${month}/${day}/${year}`;
+            datePicker.value = `${year}-${month}-${day}`; // Set date picker value in YYYY-MM-DD format
+            
+            // Set up date picker change handler
+            datePicker.addEventListener('change', function() {
+                const selectedDate = new Date(this.value);
+                const m = String(selectedDate.getMonth() + 1).padStart(2, '0');
+                const d = String(selectedDate.getDate()).padStart(2, '0');
+                const y = selectedDate.getFullYear();
+                dateDisplay.value = `${m}/${d}/${y}`;
+            });
+
+            // Set up manual date input handler
+            dateDisplay.addEventListener('input', function(e) {
+                let value = e.target.value.replace(/\D/g, '');
+                if (value.length >= 4) {
+                    value = value.slice(0,2) + '/' + value.slice(2,4) + '/' + value.slice(4);
+                } else if (value.length >= 2) {
+                    value = value.slice(0,2) + '/' + value.slice(2);
+                }
+                e.target.value = value;
+
+                // Update date picker if valid date
+                const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+                if (match) {
+                    const [_, mm, dd, yyyy] = match;
+                    datePicker.value = `${yyyy}-${mm}-${dd}`;
+                }
+            });
+
+            // Set default time
+            const hours = String(now.getHours()).padStart(2, '0');
             const minutes = String(now.getMinutes()).padStart(2, '0');
-            const ampm = document.querySelector('select[name="am_pm"]');
-            
-            // Convert to 12-hour format
-            if (hours >= 12) {
-                ampm.value = 'PM';
-                hours = hours === 12 ? 12 : hours - 12;
-            } else {
-                ampm.value = 'AM';
-                hours = hours === 0 ? 12 : hours;
-            }
-            hours = String(hours).padStart(2, '0');
             timeInput.value = `${hours}:${minutes}`;
-        };
+            updateAmPm(timeInput);
+        }
+
+        function updateAmPm(timeInput) {
+            const amPmInput = document.getElementById('am_pm');
+            const time = timeInput.value;
+            if (time) {
+                const hours = parseInt(time.split(':')[0]);
+                amPmInput.value = hours >= 12 ? 'PM' : 'AM';
+            }
+        }
+
+        function validateForm() {
+            const dateInput = document.getElementById('dateDisplay');
+            const dateValue = dateInput.value;
+            
+            // Check date format
+            const datePattern = /^(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|3[01])\/[0-9]{4}$/;
+            if (!datePattern.test(dateValue)) {
+                alert('Please enter date in MM/DD/YYYY format');
+                return false;
+            }
+
+            // Validate date values
+            const [month, day, year] = dateValue.split('/').map(Number);
+            const date = new Date(year, month - 1, day);
+            
+            if (date.getMonth() !== month - 1 || date.getDate() !== day) {
+                alert('Please enter a valid date');
+                return false;
+            }
+
+            return true;
+        }
     </script>
 </body>
 </html>

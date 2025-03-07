@@ -73,7 +73,7 @@
                 <td>{{ sample_trash.deleted_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
                 <td>{{ sample_trash.deleted_by }}</td>
                 <td>
-                    <a href="{{ url_for('restore_from_trash', trash_id=sample_trash.trash_id) }}" 
+                    <a href="{{ url_for('restore_from_trash', id=sample_trash.id) }}" 
                        class="btn-green" 
                        onclick="return confirm('Are you sure you want to restore this record?')">
                         Restore
