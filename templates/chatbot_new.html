@@ -1,58 +1,92 @@
 {% extends "base.html" %}
 
-{% block title %}Chatbot{% endblock %}
+{% block title %}Chatbot New{% endblock %}
 
-{% block header %}Project Tracker Chatbot{% endblock %}
+{% block header %}Project Tracker Advanced Chatbot{% endblock %}
 
 {% block content %}
 <div class="chatbot-container">
-    <h2>Project Tracker Assistant</h2>
-    
-    <div class="chat-box">
-        <div class="chat-messages" id="chatMessages">
-            <div class="message bot">
-                Hello! I can help you find and filter records. Here are some example queries you can try:
-                <br><br>
-                1. View specific columns:
-                <br>• "Show id, date, glass_type columns"
-                <br>• "Show cleaning, coating, annealing columns"
-                <br><br>
-                2. Search by ID:
-                <br>• "Show me the records of ID='AWI001'"
-                <br>• "Show records with ID='AWI001'"
-                <br><br>
-                3. Search by process status:
-                <br>• "Show records with cleaning='Y'"
-                <br>• "Show records with coating='N'"
+    <div class="chat-interface">
+        <div class="chat-header">
+            <h2>Advanced Project Assistant</h2>
+            <div class="chat-info">
+                <i class="fas fa-info-circle"></i>
+                <span>Ask questions in natural language about your samples and experiments</span>
             </div>
-            {% if query %}
-                <div class="message user">
-                    {{ query }}
-                </div>
-                {% if error %}
-                    <div class="message bot error">
-                        {{ error }}
-                    </div>
-                {% elif response %}
-                    <div class="message bot">
-                        {{ response | safe | replace('\n', '<br>') }}
-                    </div>
-                {% endif %}
-            {% endif %}
         </div>
-        <form method="POST" class="chat-input-form">
-            <input type="text" name="query" placeholder="Type your query here..." required class="chat-input">
-            <button type="submit" class="chat-submit">Send</button>
-        </form>
+        
+        <div class="chat-box">
+            <div class="chat-messages" id="chatMessages">
+                <div class="message bot">
+                    <div class="message-content">
+                        <p>👋 Hello! I'm your advanced project assistant. Here are some things you can ask me:</p>
+                        <div class="example-queries">
+                            <div class="query-category">
+                                <h4>🔍 Basic Queries</h4>
+                                <ul>
+                                    <li>"Show all samples from Sun Density"</li>
+                                    <li>"Find experiments with ERB number 1"</li>
+                                    <li>"Display samples with cleaning status Y"</li>
+                                </ul>
+                            </div>
+                            <div class="query-category">
+                                <h4>📊 Advanced Queries</h4>
+                                <ul>
+                                    <li>"Show samples where coating is Y and cleaning is N"</li>
+                                    <li>"Find all experiments with transmittance data from last week"</li>
+                                    <li>"List samples with glass type A and dimensions 10x20x30"</li>
+                                </ul>
+                            </div>
+                            <div class="query-category">
+                                <h4>📋 Column Selection</h4>
+                                <ul>
+                                    <li>"Show id, date, glass type columns"</li>
+                                    <li>"Display ERB, company name, dimensions"</li>
+                                    <li>"List all experimental data columns"</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% if query %}
+                    <div class="message user">
+                        <div class="message-content">{{ query }}</div>
+                    </div>
+                    {% if error %}
+                        <div class="message bot error">
+                            <div class="message-content">{{ error }}</div>
+                        </div>
+                    {% elif response %}
+                        <div class="message bot">
+                            <div class="message-content">{{ response | safe | replace('\n', '<br>') }}</div>
+                        </div>
+                    {% endif %}
+                {% endif %}
+            </div>
+            <form method="POST" class="chat-input-form">
+                <div class="input-group">
+                    <input type="text" name="query" placeholder="Ask me anything about your samples..." required class="chat-input">
+                    <button type="submit" class="chat-submit">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+            </form>
+        </div>
     </div>
 
     {% if results %}
-    <div class="chat-results">
+    <div class="results-section">
         <div class="results-header">
             <h3>Search Results</h3>
             <div class="results-controls">
-                <input type="text" id="tableSearch" placeholder="Filter results..." class="table-search">
-                <button id="exportCSV" class="export-btn">Export to CSV</button>
+                <div class="search-box">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="tableSearch" placeholder="Filter results..." class="table-search">
+                </div>
+                <button id="exportCSV" class="export-btn">
+                    <i class="fas fa-download"></i>
+                    Export to CSV
+                </button>
             </div>
         </div>
         <div class="table-container">
@@ -62,7 +96,7 @@
                         <tr>
                             {% if selected_columns %}
                                 {% for column in selected_columns %}
-                                    <th>{{ column|title }}</th>
+                                    <th>{{ column|title|replace('_', ' ') }}</th>
                                 {% endfor %}
                             {% else %}
                                 <th>ID</th>
@@ -125,20 +159,34 @@
                                             <span class="status-cell {% if sample.annealing == 'Y' %}status-yes{% else %}status-no{% endif %}">{{ sample.annealing }}</span>
                                         {% elif column == 'done' %}
                                             <span class="status-cell {% if sample.done == 'Y' %}status-yes{% else %}status-no{% endif %}">{{ sample.done }}</span>
-                                        {% elif column == 'transmittance' and experiment and experiment.transmittance %}
-                                            <a href="{{ experiment.transmittance }}" target="_blank" class="view-link">View</a>
-                                        {% elif column == 'reflectance' and experiment and experiment.reflectance %}
-                                            <a href="{{ experiment.reflectance }}" target="_blank" class="view-link">View</a>
-                                        {% elif column == 'absorbance' and experiment and experiment.absorbance %}
-                                            <a href="{{ experiment.absorbance }}" target="_blank" class="view-link">View</a>
-                                        {% elif column == 'plqy' and experiment and experiment.plqy %}
-                                            <a href="{{ experiment.plqy }}" target="_blank" class="view-link">View</a>
-                                        {% elif column == 'sem' and experiment and experiment.sem %}
-                                            <a href="{{ experiment.sem }}" target="_blank" class="view-link">View</a>
-                                        {% elif column == 'edx' and experiment and experiment.edx %}
-                                            <a href="{{ experiment.edx }}" target="_blank" class="view-link">View</a>
-                                        {% elif column == 'xrd' and experiment and experiment.xrd %}
-                                            <a href="{{ experiment.xrd }}" target="_blank" class="view-link">View</a>
+                                        {% elif column == 'transmittance' and experiment %}
+                                            {% if experiment.transmittance %}
+                                                <a href="{{ experiment.transmittance }}" target="_blank" class="view-link">View</a>
+                                            {% endif %}
+                                        {% elif column == 'reflectance' and experiment %}
+                                            {% if experiment.reflectance %}
+                                                <a href="{{ experiment.reflectance }}" target="_blank" class="view-link">View</a>
+                                            {% endif %}
+                                        {% elif column == 'absorbance' and experiment %}
+                                            {% if experiment.absorbance %}
+                                                <a href="{{ experiment.absorbance }}" target="_blank" class="view-link">View</a>
+                                            {% endif %}
+                                        {% elif column == 'plqy' and experiment %}
+                                            {% if experiment.plqy %}
+                                                <a href="{{ experiment.plqy }}" target="_blank" class="view-link">View</a>
+                                            {% endif %}
+                                        {% elif column == 'sem' and experiment %}
+                                            {% if experiment.sem %}
+                                                <a href="{{ experiment.sem }}" target="_blank" class="view-link">View</a>
+                                            {% endif %}
+                                        {% elif column == 'edx' and experiment %}
+                                            {% if experiment.edx %}
+                                                <a href="{{ experiment.edx }}" target="_blank" class="view-link">View</a>
+                                            {% endif %}
+                                        {% elif column == 'xrd' and experiment %}
+                                            {% if experiment.xrd %}
+                                                <a href="{{ experiment.xrd }}" target="_blank" class="view-link">View</a>
+                                            {% endif %}
                                         {% endif %}
                                     </td>
                                 {% endfor %}
@@ -207,22 +255,6 @@
     {% endif %}
 </div>
 
-<!-- Add this before the existing style tag -->
-{% if selected_columns and selected_columns|length <= 3 %}
-<style>
-.results-table {
-    min-width: auto !important;
-    width: auto !important;
-    margin: 0 auto !important;
-}
-
-.table-wrapper {
-    width: auto !important;
-    max-width: 800px !important;
-}
-</style>
-{% endif %}
-
 <style>
 .chatbot-container {
     max-width: 1200px;
@@ -230,76 +262,146 @@
     padding: 20px;
 }
 
-.chatbot-container h2 {
-    text-align: center;
+.chat-interface {
+    background: #fff;
+    border-radius: 15px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
     margin-bottom: 30px;
-    color: #333;
+    overflow: hidden;
+}
+
+.chat-header {
+    background: #f8f9fa;
+    padding: 20px;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.chat-header h2 {
+    margin: 0;
+    color: #2c3e50;
+    font-size: 1.5rem;
+}
+
+.chat-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    color: #6c757d;
+    font-size: 0.9rem;
 }
 
 .chat-box {
-    background: #fff;
-    border-radius: 10px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    margin-bottom: 30px;
+    padding: 20px;
 }
 
 .chat-messages {
-    padding: 20px;
-    max-height: 400px;
+    min-height: 300px;
+    max-height: 500px;
     overflow-y: auto;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 10px;
+    margin-bottom: 20px;
 }
 
 .message {
     margin-bottom: 15px;
-    padding: 12px 15px;
-    border-radius: 8px;
-    max-width: 80%;
-}
-
-.message.bot {
-    background: #f0f2f5;
-    margin-right: auto;
+    display: flex;
+    flex-direction: column;
 }
 
 .message.user {
-    background: #0084ff;
+    align-items: flex-end;
+}
+
+.message-content {
+    padding: 12px 16px;
+    border-radius: 15px;
+    max-width: 80%;
+}
+
+.message.bot .message-content {
+    background: #e9ecef;
+    color: #2c3e50;
+}
+
+.message.user .message-content {
+    background: #007bff;
     color: white;
-    margin-left: auto;
 }
 
-.message.error {
-    background: #ffebee;
-    color: #c62828;
+.message.bot.error .message-content {
+    background: #dc3545;
+    color: white;
 }
 
-.chat-input-form {
-    display: flex;
+.example-queries {
+    margin-top: 15px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 15px;
+}
+
+.query-category {
+    background: white;
     padding: 15px;
-    border-top: 1px solid #eee;
+    border-radius: 10px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.query-category h4 {
+    margin: 0 0 10px 0;
+    color: #2c3e50;
+}
+
+.query-category ul {
+    margin: 0;
+    padding-left: 20px;
+    color: #6c757d;
+}
+
+.query-category li {
+    margin-bottom: 5px;
+    font-size: 0.9rem;
+}
+
+.input-group {
+    display: flex;
+    gap: 10px;
+    background: white;
+    padding: 10px;
+    border-radius: 10px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
 .chat-input {
     flex: 1;
     padding: 12px;
-    border: 1px solid #ddd;
-    border-radius: 6px;
-    margin-right: 10px;
-    font-size: 14px;
+    border: 1px solid #ced4da;
+    border-radius: 8px;
+    font-size: 1rem;
 }
 
 .chat-submit {
-    padding: 12px 24px;
-    background: #0084ff;
+    padding: 0 20px;
+    background: #007bff;
     color: white;
     border: none;
-    border-radius: 6px;
+    border-radius: 8px;
     cursor: pointer;
-    font-weight: bold;
     transition: background-color 0.2s;
 }
 
 .chat-submit:hover {
-    background: #0073e6;
+    background: #0056b3;
+}
+
+.results-section {
+    background: white;
+    border-radius: 15px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    padding: 20px;
 }
 
 .results-header {
@@ -311,287 +413,123 @@
 
 .results-controls {
     display: flex;
-    gap: 10px;
+    gap: 15px;
+}
+
+.search-box {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.search-box i {
+    position: absolute;
+    left: 12px;
+    color: #6c757d;
 }
 
 .table-search {
-    padding: 8px 12px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    font-size: 14px;
-    width: 200px;
+    padding: 8px 12px 8px 35px;
+    border: 1px solid #ced4da;
+    border-radius: 8px;
+    font-size: 0.9rem;
 }
 
 .export-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     padding: 8px 16px;
-    background: #4CAF50;
+    background: #28a745;
     color: white;
     border: none;
-    border-radius: 4px;
+    border-radius: 8px;
     cursor: pointer;
-    font-weight: bold;
     transition: background-color 0.2s;
 }
 
 .export-btn:hover {
-    background: #45a049;
-}
-
-.chat-results {
-    background: #fff;
-    border-radius: 10px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    padding: 20px;
-    margin-top: 30px;
-    width: 100%;
-    overflow: hidden;
+    background: #218838;
 }
 
 .table-container {
-    position: relative;
-    margin-top: 20px;
-    width: 100%;
-    overflow: hidden;
-    border: 1px solid #e0e0e0;
-    border-radius: 8px;
-    background: white;
-}
-
-.table-wrapper {
-    max-height: 600px;
-    overflow-y: auto;
     overflow-x: auto;
-    padding-bottom: 15px;
-    margin: 0 auto;
-}
-
-/* Customize scrollbar appearance */
-.table-wrapper::-webkit-scrollbar {
-    width: 12px;
-    height: 12px;
-}
-
-.table-wrapper::-webkit-scrollbar-track {
-    background: #f1f1f1;
-    border-radius: 6px;
-}
-
-.table-wrapper::-webkit-scrollbar-thumb {
-    background: #888;
-    border-radius: 6px;
-    border: 3px solid #f1f1f1;
-}
-
-.table-wrapper::-webkit-scrollbar-thumb:hover {
-    background: #666;
 }
 
 .results-table {
     width: 100%;
-    border-collapse: separate;
-    border-spacing: 0;
-    background: white;
-    font-size: 14px;
-    table-layout: fixed;
-    min-width: auto;
+    border-collapse: collapse;
 }
 
-/* Column width adjustments */
-.results-table th:nth-child(1), /* ID */
-.results-table td:nth-child(1) {
-    width: 120px;
-    min-width: 120px;
-}
-
-.results-table th:nth-child(n+2), /* All other columns */
-.results-table td:nth-child(n+2) {
-    width: 200px;
-    min-width: 200px;
-}
-
-/* Status columns */
-.results-table th:nth-child(11),
-.results-table th:nth-child(12),
-.results-table th:nth-child(13),
-.results-table th:nth-child(14),
-.results-table td:nth-child(11),
-.results-table td:nth-child(12),
-.results-table td:nth-child(13),
-.results-table td:nth-child(14) {
-    width: 100px;
-    text-align: center;
-}
-
-/* Experimental data columns */
-.results-table th:nth-child(n+15),
-.results-table td:nth-child(n+15) {
-    width: 120px;
-    text-align: center;
-}
-
-/* Base styles for all cells */
 .results-table th,
 .results-table td {
-    padding: 12px 15px;
-    border-bottom: 1px solid #eee;
-    vertical-align: middle;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-/* Show full content on hover */
-.results-table td:hover {
-    overflow: visible;
-    white-space: normal;
-    word-break: break-word;
-    position: relative;
-    background: #fff;
-    z-index: 1;
-    box-shadow: 0 0 10px rgba(0,0,0,0.1);
-}
-
-/* Ensure header stays fixed */
-.results-table thead {
-    position: sticky;
-    top: 0;
-    z-index: 2;
-    background: #f8f9fa;
+    padding: 12px;
+    border: 1px solid #dee2e6;
 }
 
 .results-table th {
     background: #f8f9fa;
     font-weight: 600;
-    border-bottom: 2px solid #ddd;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    text-align: left;
 }
 
-/* Responsive adjustments */
-@media (max-width: 768px) {
-    .table-wrapper {
-        max-height: 400px;
-    }
-    
-    .results-table {
-        min-width: 1800px;
-    }
+.results-table tr:nth-child(even) {
+    background: #f8f9fa;
 }
 
-/* Status cell improvements */
 .status-cell {
     display: inline-block;
-    width: 28px;
-    height: 28px;
-    line-height: 28px;
-    text-align: center;
+    padding: 4px 8px;
     border-radius: 4px;
-    font-weight: bold;
-    font-size: 13px;
-    margin: 0 auto;
+    font-weight: 500;
 }
 
 .status-yes {
-    background: #e8f5e9;
-    color: #2e7d32;
-    border: 1px solid #81c784;
+    background: #d4edda;
+    color: #155724;
 }
 
 .status-no {
-    background: #ffebee;
-    color: #c62828;
-    border: 1px solid #e57373;
+    background: #f8d7da;
+    color: #721c24;
 }
 
-/* Improve view link styling */
 .view-link {
     display: inline-block;
-    padding: 6px 12px;
-    background: #e3f2fd;
-    color: #1976d2;
+    padding: 4px 12px;
+    background: #007bff;
+    color: white;
     text-decoration: none;
     border-radius: 4px;
-    transition: all 0.2s ease;
-    font-weight: 500;
-    border: 1px solid #bbdefb;
+    font-size: 0.9rem;
+    transition: background-color 0.2s;
 }
 
 .view-link:hover {
-    background: #bbdefb;
-    transform: translateY(-1px);
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    background: #0056b3;
+    text-decoration: none;
+    color: white;
 }
 
 @media (max-width: 768px) {
-    .chatbot-container {
-        padding: 10px;
-    }
-    
     .results-header {
         flex-direction: column;
-        gap: 10px;
+        gap: 15px;
     }
     
     .results-controls {
+        flex-direction: column;
+        width: 100%;
+    }
+    
+    .search-box,
+    .export-btn {
         width: 100%;
     }
     
     .table-search {
-        flex: 1;
+        width: 100%;
     }
-}
-
-.results-table tbody tr:hover {
-    background: #f8f9fa;
-    transition: background-color 0.2s ease;
-}
-
-.results-table td.center {
-    text-align: center;
-    vertical-align: middle;
-}
-
-/* Make the table more responsive */
-@media (max-width: 768px) {
-    .table-wrapper {
-        max-height: 400px; /* Smaller height on mobile */
-    }
-    
-    .results-table {
-        min-width: 800px; /* Smaller min-width on mobile */
-    }
-}
-
-/* Ensure proper spacing in cells */
-.results-table td, .results-table th {
-    padding: 12px 15px;
-    vertical-align: middle;
-}
-
-/* Add zebra striping for better readability */
-.results-table tbody tr:nth-child(even) {
-    background-color: #f8f9fa;
-}
-
-/* Improve table header appearance */
-.results-table thead th {
-    background: #f8f9fa;
-    font-weight: 600;
-    color: #333;
-    text-transform: uppercase;
-    font-size: 12px;
-    letter-spacing: 0.5px;
-}
-
-/* Add box shadow to header */
-.results-table th {
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-}
-
-/* Improve cell padding on hover */
-.results-table td:hover {
-    padding: 12px 15px;
-    box-shadow: 0 0 10px rgba(0,0,0,0.1);
-    z-index: 2;
 }
 </style>
 
@@ -599,67 +537,77 @@
 document.addEventListener('DOMContentLoaded', function() {
     // Table search functionality
     const searchInput = document.getElementById('tableSearch');
-    if (searchInput) {
+    const resultsTable = document.getElementById('resultsTable');
+    
+    if (searchInput && resultsTable) {
         searchInput.addEventListener('input', function() {
             const searchTerm = this.value.toLowerCase();
-            const table = document.getElementById('resultsTable');
-            const rows = table.getElementsByTagName('tr');
-
+            const rows = resultsTable.getElementsByTagName('tr');
+            
             for (let i = 1; i < rows.length; i++) {
                 const row = rows[i];
                 const cells = row.getElementsByTagName('td');
                 let found = false;
-
+                
                 for (let cell of cells) {
                     if (cell.textContent.toLowerCase().includes(searchTerm)) {
                         found = true;
                         break;
                     }
                 }
-
+                
                 row.style.display = found ? '' : 'none';
             }
         });
     }
-
+    
     // Export to CSV functionality
     const exportBtn = document.getElementById('exportCSV');
-    if (exportBtn) {
+    
+    if (exportBtn && resultsTable) {
         exportBtn.addEventListener('click', function() {
-            const table = document.getElementById('resultsTable');
+            const rows = resultsTable.getElementsByTagName('tr');
             let csv = [];
             
             // Get headers
-            let headers = [];
-            const headerCells = table.querySelectorAll('thead th');
-            headerCells.forEach(cell => headers.push(cell.textContent.trim()));
+            const headers = [];
+            const headerCells = rows[0].getElementsByTagName('th');
+            for (let cell of headerCells) {
+                headers.push('"' + cell.textContent.trim() + '"');
+            }
             csv.push(headers.join(','));
             
             // Get data
-            const rows = table.querySelectorAll('tbody tr');
-            rows.forEach(row => {
-                if (row.style.display !== 'none') {  // Only export visible rows
-                    let rowData = [];
-                    row.querySelectorAll('td').forEach(cell => {
-                        rowData.push(cell.textContent.trim());
-                    });
-                    csv.push(rowData.join(','));
+            for (let i = 1; i < rows.length; i++) {
+                if (rows[i].style.display !== 'none') {
+                    const cells = rows[i].getElementsByTagName('td');
+                    const row = [];
+                    for (let cell of cells) {
+                        row.push('"' + cell.textContent.trim() + '"');
+                    }
+                    csv.push(row.join(','));
                 }
-            });
+            }
             
             // Download CSV
             const csvContent = csv.join('\n');
-            const blob = new Blob([csvContent], { type: 'text/csv' });
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.setAttribute('hidden', '');
-            a.setAttribute('href', url);
-            a.setAttribute('download', 'search_results.csv');
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', 'project_data.csv');
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
         });
+    }
+    
+    // Scroll to bottom of chat messages when new message appears
+    const chatMessages = document.getElementById('chatMessages');
+    if (chatMessages) {
+        chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 });
 </script>
-{% endblock %}
+{% endblock %} 

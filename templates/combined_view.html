@@ -19,66 +19,69 @@
                 <option value="{{ sample.id }}">{{ sample.id }}</option>
             {% endfor %}
         </select>
-        <input type="text" placeholder="Filter Date" data-column="1">
-        <input type="text" placeholder="Filter Time" data-column="2">
-        <input type="text" placeholder="Filter Recipe Front" data-column="3">
-        <input type="text" placeholder="Filter Recipe Back" data-column="4">
-        <input type="text" placeholder="Filter Glass Type" data-column="5">
-        <input type="text" placeholder="Filter Dimensions" data-column="6">
-        <select data-column="7">
+        <input type="text" placeholder="Filter Company" data-column="1">
+        <input type="text" placeholder="Filter ERB" data-column="2">
+        <input type="text" placeholder="Filter ERB Description" data-column="3">
+        <input type="text" placeholder="Filter Date" data-column="4">
+        <input type="text" placeholder="Filter Time" data-column="5">
+        <input type="text" placeholder="Filter Recipe Front" data-column="6">
+        <input type="text" placeholder="Filter Recipe Back" data-column="7">
+        <input type="text" placeholder="Filter Glass Type" data-column="8">
+        <input type="text" placeholder="Filter Dimensions" data-column="9">
+        <select data-column="10">
             <option value="">All Cleaning</option>
             <option value="Y">Y</option>
             <option value="N">N</option>
         </select>
-        <select data-column="8">
+        <select data-column="11">
             <option value="">All Coating</option>
             <option value="Y">Y</option>
             <option value="N">N</option>
         </select>
-        <select data-column="9">
+        <select data-column="12">
             <option value="">All Annealing</option>
             <option value="Y">Y</option>
             <option value="N">N</option>
         </select>
-        <select data-column="10">
+        <select data-column="13">
             <option value="">All Done</option>
             <option value="Y">Y</option>
             <option value="N">N</option>
         </select>
-        <select data-column="11">
-            <option value="">All Transmittance</option>
-            <option value="has">Has Link</option>
-            <option value="no">No Link</option>
-        </select>
-        <select data-column="12">
-            <option value="">All Reflectance</option>
-            <option value="has">Has Link</option>
-            <option value="no">No Link</option>
-        </select>
-        <select data-column="13">
-            <option value="">All Absorbance</option>
-            <option value="has">Has Link</option>
-            <option value="no">No Link</option>
-        </select>
         <select data-column="14">
-            <option value="">All PLQY</option>
-            <option value="has">Has Link</option>
-            <option value="no">No Link</option>
+            <option value="">All Transmittance</option>
+            <option value="has">Has Data</option>
+            <option value="no">No Data</option>
         </select>
         <select data-column="15">
-            <option value="">All SEM</option>
-            <option value="has">Has Link</option>
-            <option value="no">No Link</option>
+            <option value="">All Reflectance</option>
+            <option value="has">Has Data</option>
+            <option value="no">No Data</option>
         </select>
         <select data-column="16">
-            <option value="">All EDX</option>
-            <option value="has">Has Link</option>
-            <option value="no">No Link</option>
+            <option value="">All Absorbance</option>
+            <option value="has">Has Data</option>
+            <option value="no">No Data</option>
         </select>
         <select data-column="17">
+            <option value="">All PLQY</option>
+            <option value="has">Has Data</option>
+            <option value="no">No Data</option>
+        </select>
+        <select data-column="18">
+            <option value="">All SEM</option>
+            <option value="has">Has Data</option>
+            <option value="no">No Data</option>
+        </select>
+        <select data-column="19">
+            <option value="">All EDX</option>
+            <option value="has">Has Data</option>
+            <option value="no">No Data</option>
+        </select>
+        <select data-column="20">
             <option value="">All XRD</option>
-            <option value="has">Has Link</option>
-            <option value="no">No Link</option>
+            <option value="has">Has Data</option>
+            <option value="no">No Data</option>
         </select>
     </div>
     <div class="filter-actions">
@@ -96,6 +99,9 @@
         <thead>
             <tr>
                 <th>ID</th>
+                <th>Company Name</th>
+                <th>ERB</th>
+                <th>ERB Description</th>
                 <th>Date</th>
                 <th>Time</th>
                 <th>Recipe Front</th>
@@ -119,6 +125,13 @@
             {% for sample, experiment in results %}
             <tr>
                 <td>{{ sample.id }}</td>
+                <td>{{ sample.company_name }}</td>
+                <td>{{ sample.ERB }}</td>
+                <td class="center">
+                    {% if sample.ERB_description %}
+                        <a href="{{ sample.ERB_description }}" target="_blank" class="view-link">View</a>
+                    {% endif %}
+                </td>
                 <td>{{ sample.date }}</td>
                 <td>{{ sample.time }} {{ sample.am_pm }}</td>
                 <td>{{ sample.recipe_front }}</td>
@@ -131,37 +144,37 @@
                 <td class="center">{{ sample.done }}</td>
                 <td class="center">
                     {% if experiment and experiment.transmittance %}
-                        <a href="{{ experiment.transmittance }}" target="_blank">View</a>
+                        <a href="#" onclick="showData('transmittance', {{ experiment.transmittance|tojson }})">View</a>
                     {% endif %}
                 </td>
                 <td class="center">
                     {% if experiment and experiment.reflectance %}
-                        <a href="{{ experiment.reflectance }}" target="_blank">View</a>
+                        <a href="#" onclick="showData('reflectance', {{ experiment.reflectance|tojson }})">View</a>
                     {% endif %}
                 </td>
                 <td class="center">
                     {% if experiment and experiment.absorbance %}
-                        <a href="{{ experiment.absorbance }}" target="_blank">View</a>
+                        <a href="#" onclick="showData('absorbance', {{ experiment.absorbance|tojson }})">View</a>
                     {% endif %}
                 </td>
                 <td class="center">
                     {% if experiment and experiment.plqy %}
-                        <a href="{{ experiment.plqy }}" target="_blank">View</a>
+                        <a href="#" onclick="showData('plqy', {{ experiment.plqy|tojson }})">View</a>
                     {% endif %}
                 </td>
                 <td class="center">
                     {% if experiment and experiment.sem %}
-                        <a href="{{ experiment.sem }}" target="_blank">View</a>
+                        <a href="#" onclick="showData('sem', {{ experiment.sem|tojson }})">View</a>
                     {% endif %}
                 </td>
                 <td class="center">
                     {% if experiment and experiment.edx %}
-                        <a href="{{ experiment.edx }}" target="_blank">View</a>
+                        <a href="#" onclick="showData('edx', {{ experiment.edx|tojson }})">View</a>
                     {% endif %}
                 </td>
                 <td class="center">
                     {% if experiment and experiment.xrd %}
-                        <a href="{{ experiment.xrd }}" target="_blank">View</a>
+                        <a href="#" onclick="showData('xrd', {{ experiment.xrd|tojson }})">View</a>
                     {% endif %}
                 </td>
             </tr>
@@ -172,6 +185,15 @@
 
 <!-- Add scroll to top button -->
 <button id="scrollTopBtn" class="scroll-top-btn" title="Go to top">↑</button>
+
+<!-- Add modal for displaying data -->
+<div id="dataModal" class="modal">
+    <div class="modal-content">
+        <span class="close">&times;</span>
+        <h2 id="modalTitle"></h2>
+        <div id="modalContent"></div>
+    </div>
+</div>
 
 <script>
 // Add scroll to top functionality
@@ -204,6 +226,41 @@ if (tableContainer.scrollWidth > tableContainer.clientWidth) {
 tableContainer.addEventListener('scroll', function() {
     scrollHint.style.display = 'none';
 }, { once: true });
+
+// Modal functionality
+const modal = document.getElementById('dataModal');
+const modalTitle = document.getElementById('modalTitle');
+const modalContent = document.getElementById('modalContent');
+const span = document.getElementsByClassName('close')[0];
+
+function showData(type, data) {
+    modalTitle.textContent = type.charAt(0).toUpperCase() + type.slice(1) + ' Data';
+    
+    if (Array.isArray(data)) {
+        // Create a table for numerical data
+        let table = '<table><thead><tr><th>X</th><th>Y</th></tr></thead><tbody>';
+        data.forEach(point => {
+            table += `<tr><td>${point[0]}</td><td>${point[1]}</td></tr>`;
+        });
+        table += '</tbody></table>';
+        modalContent.innerHTML = table;
+    } else {
+        // Display link or text data
+        modalContent.innerHTML = `<p>${data}</p>`;
+    }
+    
+    modal.style.display = 'block';
+}
+
+span.onclick = function() {
+    modal.style.display = 'none';
+}
+
+window.onclick = function(event) {
+    if (event.target == modal) {
+        modal.style.display = 'none';
+    }
+}
 
 document.addEventListener('DOMContentLoaded', function() {
     const table = document.getElementById('dataTable');
@@ -248,10 +305,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 if (filterValue) {
                     if (filter.tagName === 'SELECT') {
-                        if (columnIndex >= 11) { // Link columns
-                            const hasLink = cell.querySelector('a') !== null;
-                            if ((filterValue === 'has' && !hasLink) || 
-                                (filterValue === 'no' && hasLink)) {
+                        if (columnIndex >= 14) { // Data columns
+                            const hasData = cell.querySelector('a') !== null;
+                            if ((filterValue === 'has' && !hasData) || 
+                                (filterValue === 'no' && hasData)) {
                                 showRow = false;
                             }
                         } else { // Y/N columns
@@ -272,39 +329,4 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 </script>
-
-<style>
-.scroll-hint {
-    text-align: center;
-    color: #666;
-    margin: 10px 0;
-    animation: fadeInOut 2s infinite;
-}
-
-.scroll-top-btn {
-    display: none;
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    background-color: #333;
-    color: white;
-    border: none;
-    border-radius: 50%;
-    width: 40px;
-    height: 40px;
-    font-size: 20px;
-    cursor: pointer;
-    opacity: 0.7;
-    transition: opacity 0.2s;
-}
-
-.scroll-top-btn:hover {
-    opacity: 1;
-}
-
-@keyframes fadeInOut {
-    0%, 100% { opacity: 0.5; }
-    50% { opacity: 1; }
-}
-</style>
 {% endblock %} 

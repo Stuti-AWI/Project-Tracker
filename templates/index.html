@@ -19,10 +19,11 @@
         <thead>
             <tr>
                 <th>ID</th>
-                <th>Date</th>
-                <th>Time</th>
+                <th>Company</th>
                 <th>ERB</th>
                 <th>ERB Description</th>
+                <th>Date</th>
+                <th>Time</th>
                 <th>Recipe Front</th>
                 <th>Recipe Back</th>
                 <th>Glass Type</th>
@@ -32,7 +33,7 @@
                 <th>Actions</th>
             </tr>
             <tr class="process-headers">
-                <th colspan="9"></th>
+                <th colspan="10"></th>
                 <th>Cleaning</th>
                 <th>Coating</th>
                 <th>Annealing</th>
@@ -43,10 +44,15 @@
             {% for sample in samples %}
             <tr>
                 <td>{{ sample.id }}</td>
+                <td>{{ sample.company_name }}</td>
+                <td>{{ sample.ERB }}</td>
+                <td class="center">
+                    {% if sample.ERB_description %}
+                        <a href="{{ sample.ERB_description }}" target="_blank" class="view-link">View</a>
+                    {% endif %}
+                </td>
                 <td>{{ sample.date }}</td>
                 <td>{{ sample.time }} {{ sample.am_pm }}</td>
-                <td>{{ sample.ERB }}</td>
-                <td>{{ sample.ERB_description }}</td>
                 <td>{{ sample.recipe_front }}</td>
                 <td>{{ sample.recipe_back }}</td>
                 <td>{{ sample.glass_type }}</td>
@@ -139,9 +145,60 @@ tableContainer.addEventListener('scroll', function() {
     opacity: 1;
 }
 
+.process-status {
+    font-weight: bold;
+    padding: 2px 6px;
+    border-radius: 3px;
+    text-align: center;
+}
+
+.status-yes {
+    background-color: #e6ffe6;
+    color: #008000;
+}
+
+.status-no {
+    background-color: #ffe6e6;
+    color: #ff0000;
+}
+
+.process-header {
+    background-color: #f5f5f5;
+    text-align: center;
+}
+
+.process-headers th {
+    background-color: #f9f9f9;
+    font-size: 0.9em;
+    padding: 5px;
+    text-align: center;
+}
+
 @keyframes fadeInOut {
     0%, 100% { opacity: 0.5; }
     50% { opacity: 1; }
+}
+
+.center {
+    text-align: center;
+}
+
+.view-link {
+    display: inline-block;
+    padding: 2px 10px;
+    background-color: #e3f2fd;
+    color: #1976d2;
+    text-decoration: none;
+    border-radius: 4px;
+    font-size: 0.9em;
+    border: 1px solid #bbdefb;
+    transition: all 0.2s ease;
+}
+
+.view-link:hover {
+    background-color: #bbdefb;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 </style>
 {% endblock %} 

@@ -13,6 +13,8 @@ import plotly.graph_objects as go
 import pandas as pd
 import json
 import numpy as np
+import re
+from urllib.parse import urlparse
 
 app = Flask(__name__)
 # Database configuration
@@ -24,11 +26,42 @@ load_dotenv()
 
 # Use Replit PostgreSQL connection if available
 if 'DATABASE_URL' in os.environ:
-    # Use Replit PostgreSQL
-    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ['DATABASE_URL']
+    # Parse the DATABASE_URL to add SSL mode if not present
+    db_url = os.environ['DATABASE_URL']
+    parsed_url = urlparse(db_url)
+    
+    # If SSL mode is not specified in the URL, add it
+    if 'sslmode=' not in db_url:
+        if '?' in db_url:
+            db_url += '&sslmode=require'
+        else:
+            db_url += '?sslmode=require'
+    
+    # Configure SQLAlchemy with the modified URL and connection settings
+    app.config['SQLALCHEMY_DATABASE_URI'] = db_url
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+        'pool_size': 5,
+        'max_overflow': 2,
+        'pool_timeout': 30,
+        'pool_recycle': 1800,
+        'pool_pre_ping': True,
+        'connect_args': {
+            'connect_timeout': 10,
+            'keepalives': 1,
+            'keepalives_idle': 30,
+            'keepalives_interval': 10,
+            'keepalives_count': 5
+        }
+    }
 else:
     # Use local development database as fallback
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///project_tracker.db'
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+        'pool_size': 5,
+        'pool_timeout': 30,
+        'pool_recycle': 1800,
+        'pool_pre_ping': True
+    }
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-here')  # Change this to a secure secret key
@@ -78,11 +111,12 @@ def login_required(f):
 class Sample(db.Model):
     __tablename__ = 'sample'
     id = db.Column(db.String(100), primary_key=True)
+    company_name = db.Column(db.String(200), nullable=False)
+    ERB = db.Column(db.Text, nullable=True)
+    ERB_description = db.Column(db.Text, nullable=True)
     date = db.Column(db.String(10), nullable=False)
     time = db.Column(db.String(8), nullable=False)
     am_pm = db.Column(db.String(2), nullable=False)
-    ERB = db.Column(db.Text, nullable=True)
-    ERB_description = db.Column(db.Text, nullable=True)
     recipe_front = db.Column(db.String(200), nullable=False)
     recipe_back = db.Column(db.String(200), nullable=False)
     glass_type = db.Column(db.String(100), nullable=False)
@@ -118,11 +152,12 @@ class Prefix(db.Model):
 class SampleTrash(db.Model):
     __tablename__ = 'sample_trash'
     id = db.Column(db.String, primary_key=True)
+    company_name = db.Column(db.String(200), nullable=False)
+    ERB = db.Column(db.Text, nullable=True)
+    ERB_description = db.Column(db.Text, nullable=True)
     date = db.Column(db.String(10), nullable=False)
     time = db.Column(db.String(8), nullable=False)
     am_pm = db.Column(db.String(2), nullable=False)
-    ERB = db.Column(db.Text, nullable=True)
-    ERB_description = db.Column(db.Text, nullable=True)
     recipe_front = db.Column(db.String(200), nullable=False)
     recipe_back = db.Column(db.String(200), nullable=False)
     glass_type = db.Column(db.String(100), nullable=False)
@@ -179,12 +214,23 @@ def logout():
 @app.route('/')
 @login_required
 def index():
-    samples = Sample.query.all()
+    # Use func.lower() for case-insensitive sorting of company names
+    samples = Sample.query\
+        .order_by(db.func.lower(Sample.company_name).asc())\
+        .all()
+    # Additional Python-level sorting for sequence numbers
+    samples.sort(key=lambda x: (
+        x.company_name.lower(),
+        int(x.id.split('-')[-1]) if x.id.split('-')[-1].isdigit() else float('inf')
+    ))
     return render_template('index.html', samples=samples)
 
 @app.route('/add', methods=['GET', 'POST'])
 @login_required
 def add_sample():
+    # Get all prefixes for the dropdown
+    prefixes = Prefix.query.order_by(Prefix.full_form).all()
+    
     if request.method == 'POST':
         # Get form data for sample
         cleaning = 'Y' if request.form.get('cleaning') else 'N'
@@ -192,14 +238,58 @@ def add_sample():
         annealing = 'Y' if request.form.get('annealing') else 'N'
         done = 'Y' if all([cleaning == 'Y', coating == 'Y', annealing == 'Y']) else 'N'
         
+        # Get the selected prefix and ERB number
+        selected_prefix = request.form.get('company_prefix')
+        erb_number = request.form.get('ERB')
+        
+        # Get the company name from the prefix table
+        prefix_obj = Prefix.query.get(selected_prefix)
+        if not prefix_obj:
+            flash('Invalid company selected', 'error')
+            return render_template('add.html', prefixes=prefixes)
+            
+        company_name = prefix_obj.full_form
+        
+        if not erb_number:
+            flash('Please select a company and enter an ERB number', 'error')
+            return render_template('add.html', prefixes=prefixes)
+
+        # Find all samples for this company prefix
+        samples = Sample.query.filter(
+            Sample.id.like(f"{selected_prefix}-%")
+        ).all()
+
+        # Also check the trash table
+        trash_samples = SampleTrash.query.filter(
+            SampleTrash.id.like(f"{selected_prefix}-%")
+        ).all()
+
+        # Get all sequence numbers from both tables
+        sequence_numbers = []
+        for sample in samples + trash_samples:
+            try:
+                seq = int(sample.id.split('-')[-1])
+                sequence_numbers.append(seq)
+            except (IndexError, ValueError):
+                continue
+
+        # Get the next sequence number
+        sequence_number = 1
+        if sequence_numbers:
+            sequence_number = max(sequence_numbers) + 1
+        
+        # Generate the ID in the format PREFIX-ExERB-SEQUENCE
+        sample_id = f"{selected_prefix}-Ex{erb_number}-{sequence_number}"
+        
         # Create new sample
         new_sample = Sample(
-            id=request.form['id'],
+            id=sample_id,
+            company_name=company_name,
+            ERB=erb_number,
+            ERB_description=request.form.get('ERB_description'),
             date=request.form['date'],
             time=request.form['time'],
             am_pm=request.form['am_pm'],
-            ERB=request.form.get('ERB'),  # Add ERB field
-            ERB_description=request.form.get('ERB_description'),  # Add ERB description field
             recipe_front=request.form['recipe_front'],
             recipe_back=request.form['recipe_back'],
             glass_type=request.form['glass_type'],
@@ -217,7 +307,7 @@ def add_sample():
         if any(request.form.get(field) for field in ['transmittance', 'reflectance', 'absorbance', 
                                                     'plqy', 'sem', 'edx', 'xrd']):
             experiment = Experiment(
-                id=request.form['id'],
+                id=sample_id,
                 transmittance=request.form.get('transmittance'),
                 reflectance=request.form.get('reflectance'),
                 absorbance=request.form.get('absorbance'),
@@ -230,19 +320,32 @@ def add_sample():
 
         db.session.commit()
         return redirect(url_for('index'))
-    return render_template('add.html')
+    return render_template('add.html', prefixes=prefixes)
 
 @app.route('/edit/<string:id>', methods=['GET', 'POST'])
 @login_required
 def edit_sample(id):
     sample = Sample.query.get_or_404(id)
+    prefixes = Prefix.query.order_by(Prefix.full_form).all()
+    
     if request.method == 'POST':
+        # Get the selected prefix and company name
+        selected_prefix = request.form.get('company_prefix')
+        prefix_obj = Prefix.query.get(selected_prefix)
+        if not prefix_obj:
+            flash('Invalid company selected', 'error')
+            return render_template('edit.html', sample=sample, prefixes=prefixes)
+            
+        company_name = prefix_obj.full_form
+        
+        # Update sample fields
+        sample.company_name = company_name
         sample.id = request.form['id']
         sample.date = request.form['date']
         sample.time = request.form['time']
         sample.am_pm = request.form['am_pm']
-        sample.ERB = request.form.get('ERB')  # Add ERB field
-        sample.ERB_description = request.form.get('ERB_description')  # Add ERB description field
+        sample.ERB = request.form.get('ERB')
+        sample.ERB_description = request.form.get('ERB_description')
         sample.recipe_front = request.form['recipe_front']
         sample.recipe_back = request.form['recipe_back']
         sample.glass_type = request.form['glass_type']
@@ -256,7 +359,7 @@ def edit_sample(id):
         
         db.session.commit()
         return redirect(url_for('index'))
-    return render_template('edit.html', sample=sample)
+    return render_template('edit.html', sample=sample, prefixes=prefixes)
 
 @app.route('/delete/<string:id>')
 @login_required
@@ -269,11 +372,12 @@ def delete_sample(id):
         # Create trash records
         sample_trash = SampleTrash(
             id=sample.id,
+            company_name=sample.company_name,
+            ERB=sample.ERB,
+            ERB_description=sample.ERB_description,
             date=sample.date,
             time=sample.time,
             am_pm=sample.am_pm,
-            ERB=sample.ERB,
-            ERB_description=sample.ERB_description,
             recipe_front=sample.recipe_front,
             recipe_back=sample.recipe_back,
             glass_type=sample.glass_type,
@@ -387,10 +491,16 @@ def edit_experiment(id):
 @app.route('/combined_view')
 @login_required
 def combined_view():
-    # Join Sample and Experiment tables
+    # Join Sample and Experiment tables with proper ordering
     results = db.session.query(Sample, Experiment)\
         .outerjoin(Experiment, Sample.id == Experiment.id)\
+        .order_by(db.func.lower(Sample.company_name).asc())\
         .all()
+    # Additional Python-level sorting for sequence numbers
+    results.sort(key=lambda x: (
+        x[0].company_name.lower(),
+        int(x[0].id.split('-')[-1]) if x[0].id.split('-')[-1].isdigit() else float('inf')
+    ))
     return render_template('combined_view.html', results=results)
 
 @app.route('/chatbot', methods=['GET', 'POST'])
@@ -400,221 +510,470 @@ def chatbot():
     query = None
     error = None
     response = None
+    selected_columns = None
     
     if request.method == 'POST':
-        query = request.form.get('query', '').strip().lower()
-        try:
-            # Get all data first
-            all_data = db.session.query(Sample, Experiment)\
-                .outerjoin(Experiment, Sample.id == Experiment.id)\
-                .all()
-            
-            # Split query into conditions using AND/OR
-            conditions = parse_query_conditions(query)
-            if conditions:
-                results = process_conditions(conditions, all_data)
-            else:
-                response = "I can help you find information about:\n" + \
-                          "- Use AND/OR for multiple conditions\n" + \
-                          "Examples:\n" + \
-                          "- 'show samples with cleaning done AND coating done'\n" + \
-                          "- 'show samples with length > 100 OR thickness > 50'\n" + \
-                          "- 'show samples with glass type=\"X\" AND recipe front contains \"Y\"'\n" + \
-                          "- 'show samples with transmittance data AND done=Y'"
-
-            if results is not None and len(results) == 0 and not response:
-                error = "No matching records found"
-                
-        except Exception as e:
-            error = "I didn't understand that query. Please try rephrasing or check the example formats."
-            results = None
-
-    return render_template('chatbot.html', 
-                         results=results if not error else None,
-                         error=error,
-                         response=response,
-                         query=query)
-
-def parse_query_conditions(query):
-    """Parse query into list of conditions with their logical operators"""
-    # Normalize the query to handle different formats
-    query = query.replace("'", '"').lower()  # Convert all quotes to double quotes
-    
-    if ' and ' not in query and ' or ' not in query:
-        return [{'condition': query, 'operator': None}]
-    
-    conditions = []
-    # Split by OR first
-    or_parts = query.split(' or ')
-    
-    for or_part in or_parts:
-        # Split by AND
-        and_parts = or_part.split(' and ')
-        for i, part in enumerate(and_parts):
-            part = part.strip()
-            # Handle special case where ID is mentioned without id=
-            if "id" in part and "=" not in part:
-                # Convert to standard format
-                if '"' in part:
-                    id_val = part.split('"')[1]
-                    part = f'id="{id_val}"'
-                else:
-                    id_val = part.split('id')[1].strip()
-                    part = f'id="{id_val}"'
-            
-            conditions.append({
-                'condition': part,
-                'operator': 'AND' if i < len(and_parts)-1 else 'OR' if or_part != or_parts[-1] else None
-            })
-    
-    return conditions
-
-def process_conditions(conditions, all_data):
-    """Process multiple conditions with AND/OR logic"""
-    current_results = set()
-    first_condition = True
-    
-    for i, condition_data in enumerate(conditions):
-        condition = condition_data['condition']
-        operator = condition_data['operator']
-        
-        # Get results for current condition
-        condition_results = set(evaluate_single_condition(condition, all_data))
-        
-        # Apply logical operators
-        if first_condition:
-            current_results = condition_results
-            first_condition = False
+        query = request.form.get('query', '').strip()
+        if not query:
+            response = get_help_message()
         else:
-            prev_operator = conditions[i-1]['operator']
-            if prev_operator == 'AND':
-                current_results = current_results.intersection(condition_results)
-            elif prev_operator == 'OR':
-                current_results = current_results.union(condition_results)
-    
-    return list(current_results)
-
-def evaluate_single_condition(condition, all_data):
-    """Evaluate a single condition and return matching results"""
-    condition = condition.lower().strip()
-    
-    # Handle ID conditions
-    if 'id' in condition:
-        try:
-            # Extract ID value from various formats
-            if '"' in condition:
-                id_value = condition.split('"')[1]
-            elif "'" in condition:
-                id_value = condition.split("'")[1]
-            elif "=" in condition:
-                id_value = condition.split('=')[1].strip()
-            else:
-                id_value = condition.split('id')[1].strip()
-            
-            # Case insensitive ID search
-            return [item for item in all_data if item[0].id.lower() == id_value.lower()]
-        except:
-            return []
-    
-    # Handle process conditions
-    elif any(process in condition for process in ['cleaning', 'coating', 'annealing']):
-        for process in ['cleaning', 'coating', 'annealing']:
-            if process in condition:
-                status = 'Y' if any(word in condition for word in ['completed', 'yes', 'done']) else 'N'
-                return [item for item in all_data if getattr(item[0], process) == status]
-    
-    elif 'recipe' in condition:
-        if 'front' in condition:
-            recipe = extract_value_from_query(condition, 'recipe front')
-            return [item for item in all_data if recipe.lower() in item[0].recipe_front.lower()]
-        elif 'back' in condition:
-            recipe = extract_value_from_query(condition, 'recipe back')
-            return [item for item in all_data if recipe.lower() in item[0].recipe_back.lower()]
-            
-    elif 'glass type' in condition:
-        glass_type = extract_value_from_query(condition, 'glass type')
-        return [item for item in all_data if glass_type.lower() in item[0].glass_type.lower()]
-        
-    elif 'date' in condition:
-        date = extract_value_from_query(condition, 'date')
-        return [item for item in all_data if date in item[0].date]
-        
-    elif 'done' in condition:
-        status = 'Y' if any(word in condition for word in ['completed', 'yes', 'done']) else 'N'
-        return [item for item in all_data if item[0].done == status]
-            
-    elif 'dimensions' in condition or any(dim in condition for dim in ['length', 'thickness', 'height']):
-        return handle_dimension_query(condition, all_data)
-        
-    elif any(exp_type in condition for exp_type in ['transmittance', 'reflectance', 'absorbance', 'plqy', 'sem', 'edx', 'xrd']):
-        return handle_experiment_query(condition, all_data)
-    
-    return []
-
-def extract_id_from_query(query):
-    if '"' in query:
-        return query.split('"')[1]
-    elif "'" in query:
-        return query.split("'")[1]
-    else:
-        return query.split('=')[1].strip()
-
-def extract_value_from_query(query, field):
-    if '"' in query:
-        return query.split('"')[1]
-    elif "'" in query:
-        return query.split("'")[1]
-    else:
-        parts = query.split(field)
-        if len(parts) > 1:
-            return parts[1].strip()
-    return ""
-
-def handle_process_query(query, all_data):
-    process_map = {
-        'cleaning': 'cleaning',
-        'coating': 'coating',
-        'annealing': 'annealing'
-    }
-    
-    for process_name, field in process_map.items():
-        if process_name in query:
-            status = 'Y' if any(word in query for word in ['completed', 'yes', 'done']) else 'N'
-            return [item for item in all_data if getattr(item[0], field) == status]
-            
-    return "Please specify which process (cleaning, coating, or annealing) you're interested in"
-
-def handle_dimension_query(query, all_data):
-    dimensions = {
-        'length': 'length',
-        'thickness': 'thickness',
-        'height': 'height'
-    }
-    
-    for dim_name, field in dimensions.items():
-        if dim_name in query:
             try:
-                value = int(''.join(c for c in query.split(dim_name)[1] if c.isdigit()))
-                if '>' in query:
-                    return [item for item in all_data if getattr(item[0], field) > value]
-                elif '<' in query:
-                    return [item for item in all_data if getattr(item[0], field) < value]
+                # Get all data first
+                all_data = db.session.query(Sample, Experiment)\
+                    .outerjoin(Experiment, Sample.id == Experiment.id)\
+                    .all()
+                
+                # Process the query dynamically
+                query_type, conditions = analyze_query(query)
+                
+                if query_type == 'help':
+                    response = get_help_message()
+                elif query_type == 'error':
+                    error = conditions  # In this case, conditions contains the error message
                 else:
-                    return [item for item in all_data if getattr(item[0], field) == value]
-            except:
-                return []
-    return []
-
-def handle_experiment_query(query, all_data):
-    exp_types = ['transmittance', 'reflectance', 'absorbance', 'plqy', 'sem', 'edx', 'xrd']
+                    results = process_dynamic_query(query_type, conditions, all_data)
+                    if isinstance(results, tuple):
+                        results, selected_columns = results
+                    
+                    if not results or (isinstance(results, list) and len(results) == 0):
+                        error = "No matching records found."
+                        results = None
+                    
+            except Exception as e:
+                error = f"An error occurred while processing your query: {str(e)}"
+                print(f"Error in chatbot: {str(e)}")
+    else:
+        response = get_help_message()
     
-    for exp_type in exp_types:
-        if exp_type in query:
-            if 'has' in query or 'with' in query:
-                return [item for item in all_data if item[1] and getattr(item[1], exp_type)]
+    return render_template('chatbot.html', 
+                         results=results, 
+                         query=query, 
+                         error=error, 
+                         response=response,
+                         selected_columns=selected_columns)
+
+@app.route('/chatbot_new', methods=['GET', 'POST'])
+@login_required
+def chatbot_new():
+    results = None
+    query = None
+    error = None
+    response = None
+    selected_columns = None
+    
+    if request.method == 'POST':
+        query = request.form.get('query', '').strip()
+        if not query:
+            response = get_help_message()
+        else:
+            try:
+                print(f"Processing query: {query}")  # Debug print
+                
+                # Get all data first
+                all_data = db.session.query(Sample, Experiment)\
+                    .outerjoin(Experiment, Sample.id == Experiment.id)\
+                    .all()
+                
+                print(f"Found {len(all_data)} total records")  # Debug print
+                
+                # Process the query dynamically
+                query_type, conditions = analyze_query(query)
+                print(f"Query type: {query_type}, Conditions: {conditions}")  # Debug print
+                
+                if query_type == 'help':
+                    response = get_help_message()
+                elif query_type == 'error':
+                    error = conditions  # In this case, conditions contains the error message
+                else:
+                    results = process_dynamic_query(query_type, conditions, all_data)
+                    if isinstance(results, tuple):
+                        results, selected_columns = results
+                        print(f"Selected columns: {selected_columns}")  # Debug print
+                    
+                    print(f"Found {len(results) if results else 0} matching records")  # Debug print
+                    
+                    if not results or (isinstance(results, list) and len(results) == 0):
+                        error = "No matching records found."
+                        results = None
+                    
+            except Exception as e:
+                import traceback
+                print(f"Error in chatbot: {str(e)}")
+                print(traceback.format_exc())  # Print full traceback
+                error = f"An error occurred while processing your query: {str(e)}"
+    else:
+        response = get_help_message()
+    
+    return render_template('chatbot_new.html', 
+                         results=results, 
+                         query=query, 
+                         error=error, 
+                         response=response,
+                         selected_columns=selected_columns)
+
+def analyze_query(query):
+    query = query.lower().strip()
+    
+    # Check for help-related queries
+    help_patterns = ['help', 'what can you do', 'show commands', 'available commands']
+    if any(pattern in query for pattern in help_patterns):
+        return 'help', None
+    
+    # Handle natural language patterns for company name queries
+    company_patterns = [
+        r'(?:show|find|display|get).*(?:from|by|for|where|with)\s+(?:company\s+name\s+(?:is|=)\s*["\']?([^"\']+?)["\']?|company\s+name\s*["\']?([^"\']+?)["\']?|(?:company\s+)?([^"\']+?)(?:\s+(?:where|with|and|or)|$))',
+        r'company\s*name\s*(?:is|=)\s*["\']?([^"\']+?)["\']?(?:\s|$)',
+    ]
+    
+    for pattern in company_patterns:
+        match = re.search(pattern, query)
+        if match:
+            # Take the first non-None group
+            company_name = next((g for g in match.groups() if g is not None), '').strip()
+            print(f"Extracted company name: {company_name}")  # Debug print
+            conditions = {'_conditions': {'company_name': company_name}, '_operator': 'AND'}
+            
+            # Check for additional status conditions
+            status_fields = ['cleaning', 'coating', 'annealing', 'done']
+            for field in status_fields:
+                status_match = re.search(rf'{field}\s*(?:is|=)\s*["\']?([YNyn])["\']?', query)
+                if status_match:
+                    conditions['_conditions'][field] = status_match.group(1).upper()
+                    if ' or ' in query:
+                        conditions['_operator'] = 'OR'
+            
+            # Check if specific columns are requested
+            if 'show' in query and any(word in query for word in ['column', 'columns']):
+                columns = extract_columns(query)
+                return 'combined', {'columns': columns or [], 'conditions': conditions}
+            return 'status', conditions
+    
+    # Handle natural language patterns for ERB queries
+    erb_patterns = [
+        r'(?:show|find|display|get).*erb\s*(?:number|#)?\s*["\']?(\d+)["\']?',
+        r'erb\s*(?:is|=)\s*["\']?(\d+)["\']?',
+    ]
+    
+    for pattern in erb_patterns:
+        match = re.search(pattern, query)
+        if match:
+            erb_number = match.group(1)
+            conditions = {'_conditions': {'erb': erb_number}, '_operator': 'AND'}
+            if 'show' in query and any(word in query for word in ['column', 'columns']):
+                columns = extract_columns(query)
+                return 'combined', {'columns': columns or [], 'conditions': conditions}
+            return 'status', conditions
+    
+    # Handle natural language patterns for status queries
+    status_fields = ['cleaning', 'coating', 'annealing', 'done']
+    status_patterns = [
+        r'(?:show|find|display|get).*(?:with|where)?\s+(\w+)\s*(?:is|=)\s*["\']?([YNyn])["\']?',
+        r'(\w+)\s*(?:is|=)\s*["\']?([YNyn])["\']?',
+    ]
+    
+    status_conditions = {}
+    for pattern in status_patterns:
+        matches = re.finditer(pattern, query)
+        for match in matches:
+            field = match.group(1).lower()
+            if field in status_fields:
+                value = match.group(2).upper()
+                status_conditions[field] = value
+    
+    if status_conditions:
+        operator = 'OR' if ' or ' in query else 'AND'
+        conditions = {'_conditions': status_conditions, '_operator': operator}
+        if 'show' in query and any(word in query for word in ['column', 'columns']):
+            columns = extract_columns(query)
+            return 'combined', {'columns': columns or [], 'conditions': conditions}
+        return 'status', conditions
+    
+    # Handle column selection queries
+    if 'show' in query and any(word in query for word in ['column', 'columns']):
+        columns = extract_columns(query)
+        if columns:
+            return 'columns', columns
+    
+    # Handle ID queries
+    id_patterns = [
+        r'(?:show|find|display|get).*id\s*[="\']([^"\']+)["\']',
+        r'id\s*[="\']([^"\']+)["\']',
+        r'(?:show|find|display|get).*(?:with|where)?\s+id\s+(?:is|=)\s*["\']?([^"\']+?)["\']?(?:\s|$)',
+    ]
+    
+    for pattern in id_patterns:
+        match = re.search(pattern, query)
+        if match:
+            return 'id', {'id': match.group(1).strip()}
+    
+    # Check for combined queries as a last resort
+    combined = analyze_combined_query(query)
+    if combined:
+        return 'combined', combined
+    
+    # If no pattern matches, check if it's a simple column request
+    words = query.split()
+    if len(words) <= 3 and not any(word in ['where', 'with', 'and', 'or'] for word in words):
+        potential_columns = [word.strip(',') for word in words if word not in ['show', 'me', 'the', 'columns']]
+        if potential_columns:
+            return 'columns', potential_columns
+    
+    return 'error', "I couldn't understand your query. Please try using one of the example formats or ask for help."
+
+def extract_columns(query):
+    # More flexible pattern matching for column names
+    patterns = [
+        r'show\s+([\w\s,]+?)(?:\s+(?:for|where|$))',  # matches "show col1, col2 for..."
+        r'display\s+([\w\s,]+?)(?:\s+(?:for|where|$))', # matches "display col1, col2 for..."
+        r'get\s+([\w\s,]+?)(?:\s+(?:for|where|$))',   # matches "get col1, col2 for..."
+        r'([\w\s,]+?)\s+columns?(?:\s+(?:for|where|$))', # matches "col1, col2 columns for..."
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, query.lower())
+        if match:
+            # Split by comma and clean up each column name
+            columns = [col.strip().replace(' ', '_') for col in match.group(1).split(',')]
+            # Remove empty strings and common words
+            columns = [col for col in columns if col and col not in ['columns', 'column', 'show', 'me', 'the']]
+            return columns
+    
+    # If no pattern matches but query contains column names, try to extract them
+    words = query.lower().split()
+    if 'show' in words or 'display' in words or 'get' in words:
+        potential_columns = []
+        for word in words:
+            word = word.strip(',').replace(' ', '_')
+            if word and word not in ['show', 'display', 'get', 'me', 'the', 'columns', 'column']:
+                potential_columns.append(word)
+        if potential_columns:
+            return potential_columns
+    
+    return None
+
+def analyze_combined_query(query):
+    combined = {
+        'columns': [],
+        'conditions': {}
+    }
+    
+    # Extract columns if specified
+    if 'show' in query:
+        cols = re.findall(r'show\s+([\w\s,]+?)(?:\s+for|where|$)', query)
+        if cols:
+            combined['columns'] = [col.strip() for col in cols[0].split(',')]
+    
+    # Extract conditions
+    id_match = extract_id(query)
+    if id_match:
+        combined['conditions']['id'] = id_match
+    
+    status_match = extract_status(query)
+    if status_match:
+        combined['conditions'].update(status_match)
+    
+    return combined if (combined['columns'] or combined['conditions']) else None
+
+def process_dynamic_query(query_type, conditions, all_data):
+    if query_type == 'columns':
+        return process_column_selection(conditions, all_data)
+    elif query_type == 'id':
+        return process_id_query(conditions['id'], all_data)
+    elif query_type == 'status':
+        return process_status_query(conditions, all_data)
+    elif query_type == 'combined':
+        return process_combined_query(conditions, all_data)
+    return None
+
+def process_column_selection(columns, all_data):
+    valid_columns = {
+        'id': lambda s, e: s.id,
+        'company_name': lambda s, e: s.company_name,
+        'erb': lambda s, e: s.ERB,
+        'erb_description': lambda s, e: s.ERB_description,
+        'date': lambda s, e: s.date,
+        'time': lambda s, e: s.time,
+        'recipe_front': lambda s, e: s.recipe_front,
+        'recipe_back': lambda s, e: s.recipe_back,
+        'glass_type': lambda s, e: s.glass_type,
+        'dimensions': lambda s, e: f"{s.length}x{s.thickness}x{s.height}",
+        'cleaning': lambda s, e: s.cleaning,
+        'coating': lambda s, e: s.coating,
+        'annealing': lambda s, e: s.annealing,
+        'done': lambda s, e: s.done,
+        'transmittance': lambda s, e: e.transmittance if e else None,
+        'reflectance': lambda s, e: e.reflectance if e else None,
+        'absorbance': lambda s, e: e.absorbance if e else None,
+        'plqy': lambda s, e: e.plqy if e else None,
+        'sem': lambda s, e: e.sem if e else None,
+        'edx': lambda s, e: e.edx if e else None,
+        'xrd': lambda s, e: e.xrd if e else None
+    }
+    
+    # Convert all column names to lowercase for case-insensitive comparison
+    # and replace spaces with underscores
+    columns = [col.lower().replace(' ', '_') for col in columns]
+    
+    # Validate and collect the requested columns
+    valid_cols = []
+    for col in columns:
+        if col in valid_columns:
+            valid_cols.append((col, valid_columns[col]))
+        else:
+            print(f"Warning: Invalid column name '{col}'")
+    
+    # If no valid columns were found, return all data
+    if not valid_cols:
+        return all_data, None
+    
+    # Always include 'id' column for reference if not already included
+    if 'id' not in [col[0] for col in valid_cols]:
+        valid_cols.insert(0, ('id', valid_columns['id']))
+    
+    # Transform the data to include only requested columns
+    transformed_data = []
+    for sample, exp in all_data:
+        row = {}
+        for col_name, col_func in valid_cols:
+            row[col_name] = col_func(sample, exp)
+        transformed_data.append(row)
+    
+    return transformed_data, [col[0] for col in valid_cols]
+
+def process_id_query(id_value, all_data):
+    return [(sample, exp) for sample, exp in all_data if sample.id.lower() == id_value.lower()]
+
+def process_status_query(conditions, all_data):
+    print(f"Processing status query with conditions: {conditions}")  # Debug print
+    filtered_data = all_data
+    
+    if not conditions.get('_conditions'):
+        return filtered_data
+    
+    operator = conditions.get('_operator', 'AND')
+    status_conditions = conditions.get('_conditions', {})
+    
+    print(f"Operator: {operator}, Status conditions: {status_conditions}")  # Debug print
+    
+    # Handle combined company name and status conditions
+    matching_data = []
+    company_name = None
+    
+    # First extract company name if present
+    if 'company_name' in status_conditions:
+        company_name = status_conditions['company_name']
+        del status_conditions['company_name']  # Remove it so we can process other conditions separately
+    
+    # Filter by company name first if present
+    if company_name:
+        filtered_data = [
+            (sample, exp) for sample, exp in filtered_data
+            if sample.company_name.lower() == company_name.lower()
+        ]
+        print(f"Filtering by company name '{company_name}', found {len(filtered_data)} matches")
+    
+    # Then process status conditions
+    if operator == 'AND':
+        # All conditions must match
+        for field, value in status_conditions.items():
+            if field == 'erb':
+                filtered_data = [
+                    (sample, exp) for sample, exp in filtered_data
+                    if sample.ERB == str(value)
+                ]
             else:
-                return [item for item in all_data if item[1] and not getattr(item[1], exp_type)]
-    return []
+                filtered_data = [
+                    (sample, exp) for sample, exp in filtered_data
+                    if str(getattr(sample, field, '')).upper() == str(value).upper()
+                ]
+    else:  # OR
+        # Any condition can match
+        for field, value in status_conditions.items():
+            if field == 'erb':
+                matches = [
+                    (sample, exp) for sample, exp in filtered_data
+                    if sample.ERB == str(value)
+                ]
+            else:
+                matches = [
+                    (sample, exp) for sample, exp in filtered_data
+                    if str(getattr(sample, field, '')).upper() == str(value).upper()
+                ]
+            matching_data.extend(matches)
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        filtered_data = [x for x in matching_data if not (x in seen or seen.add(x))]
+    
+    print(f"Returning {len(filtered_data)} filtered records")  # Debug print
+    return filtered_data
+
+def process_combined_query(conditions, all_data):
+    filtered_data = all_data
+    
+    # Apply conditions first with AND logic
+    if conditions['conditions']:
+        for field, value in conditions['conditions'].items():
+            if field == 'id':
+                filtered_data = [
+                    (sample, exp) for sample, exp in filtered_data
+                    if sample.id.lower() == value.lower()
+                ]
+            else:
+                filtered_data = [
+                    (sample, exp) for sample, exp in filtered_data
+                    if getattr(sample, field, '').upper() == value.upper()
+                ]
+    
+    # Return with selected columns if specified
+    if conditions['columns']:
+        return process_column_selection(conditions['columns'], filtered_data)
+    
+    return filtered_data
+
+def get_help_message():
+    return (
+        "I can help you find information about:\n\n"
+        "1. View specific columns:\n"
+        "   - Example: 'Show id, company name, glass type columns'\n"
+        "   - Example: 'Show glass type column'\n"
+        "   - Example: 'Show cleaning, coating, annealing columns'\n\n"
+        "2. Search by ID:\n"
+        "   - Example: 'Show me the records of ID=\"AWI001\"'\n"
+        "   - Example: 'Show records with ID=\"AWI001\"'\n\n"
+        "3. Search by Company Name:\n"
+        "   - Example: 'Show records where company name=\"Sun Density\"'\n"
+        "   - Example: 'Show transmittance data where company name=\"Sun Density\"'\n\n"
+        "4. Search by ERB:\n"
+        "   - Example: 'Show records where ERB=\"1\"'\n"
+        "   - Example: 'Show id, erb columns where ERB=\"1\"'\n\n"
+        "5. Search by process status:\n"
+        "   Using AND:\n"
+        "   - Example: 'Show records with cleaning=\"Y\" and coating=\"Y\"'\n"
+        "   - Example: 'Show records where cleaning=\"Y\" and coating=\"Y\"'\n\n"
+        "   Using OR:\n"
+        "   - Example: 'Show records with cleaning=\"Y\" or coating=\"Y\"'\n"
+        "   - Example: 'Show records where cleaning=\"Y\" or coating=\"Y\"'\n\n"
+        "   Combined with columns:\n"
+        "   - Example: 'Show id, date columns where cleaning=\"Y\" and coating=\"Y\"'\n"
+        "   - Example: 'Show id, date columns where cleaning=\"Y\" or coating=\"Y\"'\n\n"
+        "Available columns:\n"
+        "- Basic Info: id, company name, erb\n"
+        "- Document Links: erb description (URL)\n"
+        "- Date/Time: date, time\n"
+        "- Recipe Info: recipe front, recipe back\n"
+        "- Material Info: glass type, dimensions\n"
+        "- Process Info: cleaning, coating, annealing, done\n"
+        "- Experimental Data: transmittance, reflectance, absorbance, plqy, sem, edx, xrd\n\n"
+        "You can combine these in any way, for example:\n"
+        "- 'Show id, company name, cleaning, coating columns'\n"
+        "- 'Show recipe front, glass type columns'\n"
+        "- 'Show transmittance, reflectance, absorbance columns'\n"
+        "- 'Show transmittance data where company name=\"Sun Density\"'\n"
+        "- 'Show id, date columns where cleaning=\"Y\" and coating=\"Y\"'\n"
+        "- 'Show id, date columns where cleaning=\"Y\" or coating=\"Y\"'\n"
+        "- 'Show id, erb columns where ERB=\"1\"'"
+    )
 
 @app.route('/prefix_table', methods=['GET', 'POST'])
 @login_required
@@ -695,7 +1054,7 @@ def view_trash():
     return render_template('trash.html', trash_records=trash_records)
 
 # Add route to restore from trash
-@app.route('/restore/<string:id>')  # Changed from int:trash_id to string:id
+@app.route('/restore/<string:id>')
 @login_required
 def restore_from_trash(id):
     try:
@@ -711,11 +1070,12 @@ def restore_from_trash(id):
         # Restore sample
         sample = Sample(
             id=sample_trash.id,
+            company_name=sample_trash.company_name,
+            ERB=sample_trash.ERB,
+            ERB_description=sample_trash.ERB_description,
             date=sample_trash.date,
             time=sample_trash.time,
             am_pm=sample_trash.am_pm,
-            ERB=sample_trash.ERB,
-            ERB_description=sample_trash.ERB_description,
             recipe_front=sample_trash.recipe_front,
             recipe_back=sample_trash.recipe_back,
             glass_type=sample_trash.glass_type,
@@ -852,8 +1212,9 @@ def plots():
 
 if __name__ == '__main__':
     with app.app_context():
-        # Create tables only if they don't exist
+        # Create tables
         db.create_all()
+        print("Database tables created successfully!")  # Debug print
         
         # Create admin user if it doesn't exist
         if not User.query.filter_by(username='admin').first():
@@ -865,6 +1226,23 @@ if __name__ == '__main__':
             db.session.add(admin_user)
             db.session.commit()
             print("Admin user created successfully!")
+        
+        # Print table information
+        print("\nDatabase tables:")
+        for table in db.metadata.tables:
+            print(f"- {table}")
+            
+        # Print sample count
+        try:
+            sample_count = Sample.query.count()
+            print(f"\nTotal samples in database: {sample_count}")
+            if sample_count > 0:
+                print("\nSample company names:")
+                companies = db.session.query(Sample.company_name).distinct().all()
+                for company in companies:
+                    print(f"- {company[0]}")
+        except Exception as e:
+            print(f"Error checking samples: {str(e)}")
     
-    port = int(os.environ.get('PORT', 5003))
+    port = int(os.environ.get('PORT', 5005))
     app.run(host='0.0.0.0', port=port, debug=True)  # Set debug=True during development

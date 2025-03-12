@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Project Tracker</title>
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <script src="{{ url_for('static', filename='js/table-resize.js') }}"></script>
@@ -19,28 +20,31 @@
             <ul class="navbar-nav">
                 {% if session.get('user_id') %}
                 <li class="nav-item">
-                    <a class="nav-link" href="{{ url_for('index') }}">Home</a>
+                    <a class="nav-link" href="{{ url_for('index') }}"><i class="fas fa-home"></i> Home</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="{{ url_for('experiments') }}">Experiments</a>
+                    <a class="nav-link" href="{{ url_for('experiments') }}"><i class="fas fa-flask"></i> Experiments</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="{{ url_for('plots') }}">Plots</a>
+                    <a class="nav-link" href="{{ url_for('plots') }}"><i class="fas fa-chart-line"></i> Plots</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="{{ url_for('combined_view') }}">Combined View</a>
+                    <a class="nav-link" href="{{ url_for('combined_view') }}"><i class="fas fa-table"></i> Combined View</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="{{ url_for('prefix_table') }}">Prefix Table</a>
+                    <a class="nav-link" href="{{ url_for('prefix_table') }}"><i class="fas fa-list"></i> Prefix Table</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="{{ url_for('chatbot') }}">Chatbot</a>
+                    <a class="nav-link" href="{{ url_for('chatbot') }}"><i class="fas fa-robot"></i> Chatbot</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="{{ url_for('view_trash') }}">Trash</a>
+                    <a class="nav-link" href="{{ url_for('chatbot_new') }}"><i class="fas fa-robot"></i> Chatbot New</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="{{ url_for('logout') }}">Logout</a>
+                    <a class="nav-link" href="{{ url_for('view_trash') }}"><i class="fas fa-trash"></i> Trash</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt"></i> Logout</a>
                 </li>
                 {% endif %}
             </ul>

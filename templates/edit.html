@@ -9,8 +9,13 @@
         <h1>Edit Sample</h1>
         <form method="POST" onsubmit="return validateForm()">
             <div class="form-group">
-                <label>ID: <span class="required">*</span></label>
-                <input type="text" name="id" value="{{ sample.id }}" required>
+                <label>Company: <span class="required">*</span></label>
+                <select name="company_prefix" required>
+                    <option value="">Select a Company</option>
+                    {% for prefix in prefixes %}
+                    <option value="{{ prefix.prefix }}" {% if prefix.full_form == sample.company_name %}selected{% endif %}>{{ prefix.full_form }}</option>
+                    {% endfor %}
+                </select>
             </div>
             <div class="form-group">
                 <label>ERB:</label>
@@ -19,6 +24,10 @@
             <div class="form-group">
                 <label>ERB Description:</label>
                 <textarea name="ERB_description" rows="3">{{ sample.ERB_description }}</textarea>
+            </div>
+            <div class="form-group">
+                <label>ID: <span class="required">*</span></label>
+                <input type="text" name="id" value="{{ sample.id }}" required>
             </div>
             <div class="form-group">
                 <label>Date: <span class="required">*</span></label>

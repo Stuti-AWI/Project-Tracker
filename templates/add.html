@@ -10,6 +10,34 @@
 <head>
     <title>Add New Sample</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .plot-container {
+            width: 100%;
+            margin: 20px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            background: #fff;
+        }
+        
+        .plots-wrapper {
+            display: flex;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .plot-section {
+            flex: 1;
+        }
+        
+        input[type="file"] {
+            margin: 10px 0;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 100%;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
@@ -19,16 +47,25 @@
                 <div class="section">
                     <h3>Sample Details</h3>
                     <div class="form-group">
-                        <label>ID: <span class="required">*</span></label>
-                        <input type="text" name="id" required>
+                        <label>Company: <span class="required">*</span></label>
+                        <select name="company_prefix" required>
+                            <option value="">Select a Company</option>
+                            {% for prefix in prefixes %}
+                            <option value="{{ prefix.prefix }}">{{ prefix.full_form }}</option>
+                            {% endfor %}
+                        </select>
                     </div>
                     <div class="form-group">
-                        <label>ERB:</label>
-                        <input type="text" name="ERB" placeholder="Enter ERB">
+                        <label>ERB: <span class="required">*</span></label>
+                        <input type="text" name="ERB" placeholder="Enter ERB" required>
                     </div>
                     <div class="form-group">
                         <label>ERB Description:</label>
-                        <textarea name="ERB_description" placeholder="Enter ERB description" rows="3"></textarea>
+                        <input type="url" name="ERB_description" placeholder="SharePoint link">
+                    </div>
+                    <div class="form-group">
+                        <label>ID:</label>
+                        <input type="text" name="id" readonly placeholder="ID will be generated automatically">
                     </div>
                     <div class="form-group">
                         <label>Date: <span class="required">*</span></label>
@@ -140,7 +177,27 @@
     <script>
         window.onload = function() {
             initializeDateAndTime();
+            initializeIdGeneration();
         };
+
+        function initializeIdGeneration() {
+            const companySelect = document.querySelector('select[name="company_prefix"]');
+            const erbInput = document.querySelector('input[name="ERB"]');
+            const idInput = document.querySelector('input[name="id"]');
+
+            function updateId() {
+                const prefix = companySelect.value;
+                const erb = erbInput.value;
+                if (prefix && erb) {
+                    idInput.value = `${prefix}-Ex${erb}-1`;
+                } else {
+                    idInput.value = '';
+                }
+            }
+
+            companySelect.addEventListener('change', updateId);
+            erbInput.addEventListener('input', updateId);
+        }
 
         function initializeDateAndTime() {
             const dateDisplay = document.getElementById('dateDisplay');
