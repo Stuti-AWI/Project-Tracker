@@ -1,20 +1,20 @@
-run = "python app.py"
 language = "python3"
-hidden = [".config", "**/__pycache__", "**/.mypy_cache", "**/*.pyc"]
+run = "python app.py"
+entrypoint = "app.py"
 
 [nix]
 channel = "stable-22_11"
 
 [env]
-PYTHONPATH = "/home/runner/${REPL_SLUG}/venv/lib/python3.9/site-packages"
-PATH = "/home/runner/${REPL_SLUG}/venv/bin"
+PYTHONPATH = "${REPL_HOME}/venv/lib/python3.10/site-packages"
+PATH = "${REPL_HOME}/venv/bin"
 
 [packager]
 language = "python3"
 ignoredPackages = ["unit_tests"]
 
 [packager.features]
-enabledForHosting = false
+enabledForHosting = true
 packageSearch = true
 guessImports = true
 
@@ -24,4 +24,11 @@ pattern = "**/*.py"
 syntax = "python"
 
 [languages.python3.languageServer]
-start = "pylsp" 
+start = "pylsp"
+
+[deployment]
+run = ["sh", "-c", "python app.py"]
+deploymentTarget = "cloudrun"
+
+[unitTest]
+language = "python3" 

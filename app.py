@@ -25,7 +25,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Use Replit PostgreSQL connection if available
-if 'DATABASE_URL' in os.environ:
+if 'REPLIT_DB_URL' in os.environ:
+    # Use Replit's database URL if available
+    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('REPLIT_DB_URL')
+elif 'DATABASE_URL' in os.environ:
     # Parse the DATABASE_URL to add SSL mode if not present
     db_url = os.environ['DATABASE_URL']
     parsed_url = urlparse(db_url)
@@ -37,31 +40,10 @@ if 'DATABASE_URL' in os.environ:
         else:
             db_url += '?sslmode=require'
     
-    # Configure SQLAlchemy with the modified URL and connection settings
     app.config['SQLALCHEMY_DATABASE_URI'] = db_url
-    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-        'pool_size': 5,
-        'max_overflow': 2,
-        'pool_timeout': 30,
-        'pool_recycle': 1800,
-        'pool_pre_ping': True,
-        'connect_args': {
-            'connect_timeout': 10,
-            'keepalives': 1,
-            'keepalives_idle': 30,
-            'keepalives_interval': 10,
-            'keepalives_count': 5
-        }
-    }
 else:
     # Use local development database as fallback
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///project_tracker.db'
-    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-        'pool_size': 5,
-        'pool_timeout': 30,
-        'pool_recycle': 1800,
-        'pool_pre_ping': True
-    }
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-here')  # Change this to a secure secret key
@@ -74,10 +56,12 @@ db = SQLAlchemy(app)
 mail = Mail(app)
 
 # Import Supabase config for additional features
+supabase = None
 try:
     from supabase_config import supabase
 except ImportError:
-    supabase = None
+    print("Supabase configuration not found, continuing without Supabase features")
+    pass
 
 # Add this decorator definition at the top of your file, after imports
 def admin_required(f):
@@ -93,7 +77,7 @@ def admin_required(f):
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
-    password = db.Column(db.String(120), nullable=False)
+    password = db.Column(db.String(256), nullable=False)
     is_admin = db.Column(db.Boolean, default=False)
     reset_token = db.Column(db.String(100), unique=True, nullable=True)
     reset_token_expiry = db.Column(db.DateTime, nullable=True)
@@ -195,13 +179,26 @@ def login():
         
         user = User.query.filter_by(username=username).first()
         
-        if user and check_password_hash(user.password, password):
-            session['user_id'] = user.id
-            session['username'] = user.username
-            session['is_admin'] = user.is_admin
-            return redirect(url_for('index'))
+        # Debug prints
+        print(f"Login attempt for username: {username}")
+        if user:
+            print(f"User found, stored password hash: {user.password}")
         else:
-            flash('Invalid username or password', 'error')
+            print("User not found")
+        
+        try:
+            if user and check_password_hash(user.password, password):
+                session['user_id'] = user.id
+                session['username'] = user.username
+                session['is_admin'] = user.is_admin
+                print("Password check successful")
+                return redirect(url_for('index'))
+            else:
+                print("Password check failed")
+                flash('Invalid username or password', 'error')
+        except Exception as e:
+            print(f"Error during password check: {str(e)}")
+            flash('An error occurred during login', 'error')
     
     return render_template('login.html')
 
@@ -1161,7 +1158,7 @@ def reset_password(token):
         if password != confirm_password:
             flash('Passwords do not match.', 'error')
         else:
-            user.password = generate_password_hash(password, method='sha256')
+            user.password = generate_password_hash(password, method='pbkdf2:sha256')
             user.reset_token = None
             user.reset_token_expiry = None
             db.session.commit()
@@ -1210,39 +1207,73 @@ def plots():
     
     return render_template('plots.html', plot_data=plot_json)
 
+def update_password_hashes():
+    users = User.query.all()
+    for user in users:
+        # Only update if the hash doesn't start with 'pbkdf2:sha256'
+        if not user.password.startswith('pbkdf2:sha256'):
+            # Assuming you have a default password or way to reset
+            new_hash = generate_password_hash('temporary_password', method='pbkdf2:sha256')
+            user.password = new_hash
+    db.session.commit()
+
+# Add a route to reset admin password
+@app.route('/reset_admin', methods=['GET'])
+def reset_admin():
+    try:
+        with app.app_context():
+            # Find admin user
+            admin = User.query.filter_by(username='admin').first()
+            if admin:
+                # Update admin password
+                admin.password = generate_password_hash('admin123', method='pbkdf2:sha256')
+                db.session.commit()
+                return 'Admin password reset successfully to "admin123"'
+            else:
+                # Create new admin user
+                admin_user = User(
+                    username='admin',
+                    password=generate_password_hash('admin123', method='pbkdf2:sha256'),
+                    is_admin=True
+                )
+                db.session.add(admin_user)
+                db.session.commit()
+                return 'New admin user created with password "admin123"'
+    except Exception as e:
+        return f'Error: {str(e)}'
+
 if __name__ == '__main__':
+    # Get port from Replit environment if available
+    port = int(os.environ.get('PORT', 8080))  # Replit usually uses port 8080
+    
     with app.app_context():
         # Create tables
         db.create_all()
-        print("Database tables created successfully!")  # Debug print
+        print("Database tables created successfully!")
         
-        # Create admin user if it doesn't exist
-        if not User.query.filter_by(username='admin').first():
+        # Clear existing users and create fresh admin user
+        try:
+            User.query.delete()
+            db.session.commit()
+            print("Cleared existing users")
+            
+            # Create fresh admin user
             admin_user = User(
                 username='admin',
-                password=generate_password_hash('admin123', method='sha256'),
+                password=generate_password_hash('admin123', method='pbkdf2:sha256'),
                 is_admin=True
             )
             db.session.add(admin_user)
             db.session.commit()
-            print("Admin user created successfully!")
-        
-        # Print table information
-        print("\nDatabase tables:")
-        for table in db.metadata.tables:
-            print(f"- {table}")
+            print("Created fresh admin user with password: admin123")
             
-        # Print sample count
-        try:
-            sample_count = Sample.query.count()
-            print(f"\nTotal samples in database: {sample_count}")
-            if sample_count > 0:
-                print("\nSample company names:")
-                companies = db.session.query(Sample.company_name).distinct().all()
-                for company in companies:
-                    print(f"- {company[0]}")
         except Exception as e:
-            print(f"Error checking samples: {str(e)}")
+            print(f"Error during user setup: {str(e)}")
+            db.session.rollback()
     
-    port = int(os.environ.get('PORT', 5005))
-    app.run(host='0.0.0.0', port=port, debug=True)  # Set debug=True during development
+    # Use Replit's host and port
+    app.run(
+        host='0.0.0.0',
+        port=port,
+        debug='development' in os.environ.get('PYTHON_ENV', '').lower()
+    )
