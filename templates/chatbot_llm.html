@@ -11,16 +11,16 @@
     }
     
     .query-results-table table {
-        width: auto;
-        max-width: 100%;
+        width: auto;  /* Let table width be determined by content */
+        max-width: 100%; /* Prevent table from overflowing container */
     }
     
     .query-results-table th,
     .query-results-table td {
         padding: 12px 15px;
         white-space: nowrap;
-        max-width: none;
-        min-width: auto;
+        max-width: none; /* Remove max-width constraint */
+        min-width: auto; /* Remove min-width constraint */
     }
     
     /* Make the table header sticky */
@@ -41,31 +41,9 @@
         z-index: 2;
     }
 
-    /* Style for the View link */
-    .view-link {
-        display: inline-block;
-        padding: 4px 12px;
-        background-color: #007bff;
-        color: white;
-        border-radius: 4px;
-        text-decoration: none;
-        transition: background-color 0.2s;
-    }
-
-    .view-link:hover {
-        background-color: #0056b3;
-        color: white;
-        text-decoration: none;
-    }
-
-    /* Center align the View button */
-    .center-button {
-        text-align: center;
-    }
-
     /* Ensure the container is responsive */
     .card-body {
-        overflow: hidden;
+        overflow: hidden; /* Contains the floating table */
     }
 
     /* Add horizontal scroll indicator */
@@ -125,14 +103,8 @@
                     <tbody>
                         {% for row in results %}
                         <tr>
-                            {% for key, value in row.items() %}
-                            {% if key == 'erb_description_url' and value %}
-                                <td class="center-button">
-                                    <a href="{{ value }}" target="_blank" class="view-link" title="Click to view ERB description">View</a>
-                                </td>
-                            {% else %}
-                                <td title="{{ value }}">{{ value }}</td>
-                            {% endif %}
+                            {% for value in row.values() %}
+                            <td title="{{ value }}">{{ value }}</td>
                             {% endfor %}
                         </tr>
                         {% endfor %}
@@ -152,8 +124,8 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Add tooltips for non-ERB description cells that are truncated
-    const tableCells = document.querySelectorAll('.query-results-table td:not(.center-button)');
+    // Add tooltips for table cells that are truncated
+    const tableCells = document.querySelectorAll('.query-results-table td');
     tableCells.forEach(cell => {
         if (cell.offsetWidth < cell.scrollWidth) {
             cell.title = cell.textContent;
