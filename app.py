@@ -17,6 +17,8 @@ import re
 from urllib.parse import urlparse
 from openai import OpenAI
 from dotenv import load_dotenv
+from pymongo import MongoClient
+from bson import ObjectId  # Add this import at the top with other imports
 
 # Load environment variables
 load_dotenv(override=True)  # Force reload of environment variables
@@ -1291,6 +1293,354 @@ def reset_admin():
                 return 'New admin user created with password "admin123"'
     except Exception as e:
         return f'Error: {str(e)}'
+
+# MongoDB connection
+MONGODB_URI = os.getenv('MONGODB_URI')
+if not MONGODB_URI:
+    raise ValueError("No MONGODB_URI found in environment variables")
+
+try:
+    print(f"Attempting to connect to MongoDB...")
+    mongo_client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
+    # Force a connection attempt
+    mongo_client.server_info()
+    print("Successfully connected to MongoDB")
+    # Specify database name separately
+    mongo_db = mongo_client.AWI_users
+except Exception as e:
+    print(f"Error connecting to MongoDB: {str(e)}")
+    mongo_client = None
+    mongo_db = None
+
+@app.route('/compare', methods=['GET', 'POST'])
+@login_required
+def compare():
+    try:
+        if mongo_client is None or mongo_db is None:
+            raise Exception("MongoDB connection is not available")
+            
+        # Fetch all available files from MongoDB
+        try:
+            pre_data_files = list(mongo_db.pre_data.find({}, {'design_name': 1}))
+            post_data_files = list(mongo_db.post_data.find({}, {'design_name': 1}))
+            
+            # Convert ObjectId to string for template rendering
+            for doc in pre_data_files + post_data_files:
+                doc['_id'] = str(doc['_id'])
+                
+        except Exception as e:
+            print(f"Error fetching file list from MongoDB: {str(e)}")
+            flash(f"Error fetching file list from MongoDB: {str(e)}", 'error')
+            return render_template('compare.html', error=True)
+
+        # If this is just the initial page load or no files selected yet
+        if request.method == 'GET' or not (request.form.get('pre_file_id') and request.form.get('post_file_id')):
+            return render_template('compare.html',
+                                pre_data_files=pre_data_files,
+                                post_data_files=post_data_files,
+                                show_selection=True)
+
+        # Get selected file IDs and convert to ObjectId
+        try:
+            pre_file_id = ObjectId(request.form.get('pre_file_id'))
+            post_file_id = ObjectId(request.form.get('post_file_id'))
+            
+            # Fetch the selected documents
+            selected_pre = mongo_db.pre_data.find_one({'_id': pre_file_id})
+            selected_post = mongo_db.post_data.find_one({'_id': post_file_id})
+            
+            print("\nPre-data document:")
+            print(selected_pre)
+            print("\nPost-data document:")
+            print(selected_post)
+            
+            if not selected_pre or not selected_post:
+                raise Exception("Selected files not found")
+            
+        except Exception as e:
+            print(f"Error fetching selected files: {str(e)}")
+            flash("Error fetching selected files", 'error')
+            return render_template('compare.html',
+                                pre_data_files=pre_data_files,
+                                post_data_files=post_data_files,
+                                show_selection=True,
+                                error=True)
+
+        # Initialize data arrays
+        wavelengths = []
+        pre_transmittance = []
+        pre_reflectance = []
+        pre_absorbance = []
+        post_transmittance = []
+        post_reflectance = []
+        post_absorbance = []
+
+        # Get all wavelengths from both documents
+        all_wavelengths = set()
+        stats_wavelengths = set()  # For 400-1200nm statistics
+        for doc in [selected_pre, selected_post]:
+            print("\nDocument structure:")
+            print(f"Keys at root level: {doc.keys()}")
+            data = doc.get('data', {})
+            print(f"Data field type: {type(data)}")
+            print(f"Data field keys: {data.keys() if isinstance(data, dict) else 'Not a dictionary'}")
+            
+            if isinstance(data, dict):
+                for key in data.keys():
+                    if key not in ['_id', 'design_name']:  # Exclude non-wavelength keys
+                        try:
+                            wavelength = float(key)
+                            all_wavelengths.add(wavelength)  # Add all wavelengths for plotting
+                            if 400 <= wavelength <= 1200:  # Filter wavelengths for statistics
+                                stats_wavelengths.add(wavelength)
+                        except ValueError:
+                            continue
+
+        # Sort wavelengths
+        wavelengths = sorted(list(all_wavelengths))
+        stats_wavelengths = sorted(list(stats_wavelengths))
+        print(f"\nProcessing {len(wavelengths)} total wavelengths")
+        print(f"Processing {len(stats_wavelengths)} wavelengths between 400-1200nm for statistics")
+
+        # Process pre-data
+        print("\nProcessing pre-data:")
+        for wavelength in wavelengths:
+            str_wavelength = str(wavelength)
+            values = selected_pre.get('data', {}).get(str_wavelength)
+            print(f"Pre-data - Wavelength {wavelength}:")
+            print(f"  Raw values: {values}")
+            
+            if isinstance(values, list) and len(values) >= 3:
+                try:
+                    t_val = float(values[0])  # Transmittance is at index 0
+                    r_val = float(values[1])  # Reflectance is at index 1
+                    a_val = float(values[2])  # Absorbance is at index 2
+                    print(f"  Processed values - T: {t_val}, R: {r_val}, A: {a_val}")
+                    
+                    pre_transmittance.append(t_val)
+                    pre_reflectance.append(r_val)
+                    pre_absorbance.append(a_val)
+                except (ValueError, TypeError, IndexError) as e:
+                    print(f"  ⚠️ Error processing values: {e}")
+                    pre_transmittance.append(None)
+                    pre_reflectance.append(None)
+                    pre_absorbance.append(None)
+            else:
+                print(f"  ⚠️ Invalid data format at wavelength {wavelength}: {values}")
+                pre_transmittance.append(None)
+                pre_reflectance.append(None)
+                pre_absorbance.append(None)
+
+        # Process post-data
+        print("\nProcessing post-data:")
+        for wavelength in wavelengths:
+            str_wavelength = str(wavelength)
+            values = selected_post.get('data', {}).get(str_wavelength)
+            print(f"Post-data - Wavelength {wavelength}:")
+            print(f"  Raw values: {values}")
+            
+            if isinstance(values, list) and len(values) >= 3:
+                try:
+                    t_val = float(values[0])  # Transmittance is at index 0
+                    r_val = float(values[1])  # Reflectance is at index 1
+                    a_val = float(values[2])  # Absorbance is at index 2
+                    print(f"  Processed values - T: {t_val}, R: {r_val}, A: {a_val}")
+                    
+                    post_transmittance.append(t_val)
+                    post_reflectance.append(r_val)
+                    post_absorbance.append(a_val)
+                except (ValueError, TypeError, IndexError) as e:
+                    print(f"  ⚠️ Error processing values: {e}")
+                    post_transmittance.append(None)
+                    post_reflectance.append(None)
+                    post_absorbance.append(None)
+            else:
+                print(f"  ⚠️ Invalid data format at wavelength {wavelength}: {values}")
+                post_transmittance.append(None)
+                post_reflectance.append(None)
+                post_absorbance.append(None)
+
+        # Calculate averages (excluding zeros, infinity, and None values)
+        def safe_mean(values):
+            filtered_values = [v for v in values if v is not None and v > 0 and not np.isinf(v) and not np.isnan(v)]
+            print(f"\nCalculating mean from values: {filtered_values}")
+            if not filtered_values:
+                print("No valid values found for averaging")
+                return 0.0
+            mean_val = float(np.mean(filtered_values))
+            print(f"Mean value: {mean_val}")
+            return mean_val
+
+        print("\nPre-data arrays:")
+        print("Transmittance:", pre_transmittance)
+        print("Reflectance:", pre_reflectance)
+        print("Absorbance:", pre_absorbance)
+
+        print("\nPost-data arrays:")
+        print("Transmittance:", post_transmittance)
+        print("Reflectance:", post_reflectance)
+        print("Absorbance:", post_absorbance)
+
+        # Calculate averages for the 400-1200nm range only
+        stats_indices = [i for i, w in enumerate(wavelengths) if 400 <= w <= 1200]
+        pre_stats_transmittance = [pre_transmittance[i] for i in stats_indices]
+        pre_stats_reflectance = [pre_reflectance[i] for i in stats_indices]
+        pre_stats_absorbance = [pre_absorbance[i] for i in stats_indices]
+        post_stats_transmittance = [post_transmittance[i] for i in stats_indices]
+        post_stats_reflectance = [post_reflectance[i] for i in stats_indices]
+        post_stats_absorbance = [post_absorbance[i] for i in stats_indices]
+
+        # Calculate averages using the filtered data
+        pre_avg_transmittance = safe_mean(pre_stats_transmittance)
+        pre_avg_reflectance = safe_mean(pre_stats_reflectance)
+        pre_avg_absorbance = safe_mean(pre_stats_absorbance)
+
+        post_avg_transmittance = safe_mean(post_stats_transmittance)
+        post_avg_reflectance = safe_mean(post_stats_reflectance)
+        post_avg_absorbance = safe_mean(post_stats_absorbance)
+
+        # Calculate gains (as percentages)
+        def calculate_gain(pre_val, post_val):
+            if pre_val == 0:
+                return 0.0
+            return ((post_val - pre_val) / pre_val) * 100
+
+        transmittance_gain = calculate_gain(pre_avg_transmittance, post_avg_transmittance)
+        reflectance_gain = calculate_gain(pre_avg_reflectance, post_avg_reflectance)
+        absorbance_gain = calculate_gain(pre_avg_absorbance, post_avg_absorbance)
+
+        print("\nAverage values and gains:")
+        print(f"Transmittance: Pre={pre_avg_transmittance:.2f}%, Post={post_avg_transmittance:.2f}%, Gain={transmittance_gain:+.2f}%")
+        print(f"Reflectance: Pre={pre_avg_reflectance:.2f}%, Post={post_avg_reflectance:.2f}%, Gain={reflectance_gain:+.2f}%")
+        print(f"Absorbance: Pre={pre_avg_absorbance:.2f}, Post={post_avg_absorbance:.2f}, Gain={absorbance_gain:+.2f}%")
+
+        # Create plots
+        def create_plot_data(x_data, y1_data, y2_data, title, y_label, name1, name2):
+            return {
+                'data': [
+                    {
+                        'type': 'scatter',
+                        'x': list(x_data),
+                        'y': list(y1_data),
+                        'name': f'Pre-data ({name1})',
+                        'mode': 'markers',
+                        'marker': {
+                            'size': 6,
+                            'color': 'blue'
+                        },
+                        'hovertemplate': 
+                            '<b>Pre-data</b><br>' +
+                            'Wavelength: %{x:.0f} nm<br>' +
+                            f'{y_label}: %{{y:.5f}}%<br>' +
+                            '<extra></extra>'
+                    },
+                    {
+                        'type': 'scatter',
+                        'x': list(x_data),
+                        'y': list(y2_data),
+                        'name': f'Post-data ({name2})',
+                        'mode': 'markers',
+                        'marker': {
+                            'size': 6,
+                            'color': 'orange'
+                        },
+                        'hovertemplate': 
+                            '<b>Post-data</b><br>' +
+                            'Wavelength: %{x:.0f} nm<br>' +
+                            f'{y_label}: %{{y:.5f}}%<br>' +
+                            '<extra></extra>'
+                    }
+                ],
+                'layout': {
+                    'title': {
+                        'text': title,
+                        'font': {'size': 24}
+                    },
+                    'xaxis': {
+                        'title': 'Wavelength (nm)',
+                        'gridcolor': '#E5E5E5',
+                        'showgrid': True,
+                        'zeroline': False,
+                        'tickformat': 'd',
+                        'showline': True,
+                        'linewidth': 1,
+                        'linecolor': 'black',
+                        'showticklabels': True,
+                        'ticks': 'outside'
+                    },
+                    'yaxis': {
+                        'title': y_label,
+                        'gridcolor': '#E5E5E5',
+                        'showgrid': True,
+                        'zeroline': False,
+                        'tickformat': 'd',
+                        'showline': True,
+                        'linewidth': 1,
+                        'linecolor': 'black',
+                        'showticklabels': True,
+                        'ticks': 'outside'
+                    },
+                    'plot_bgcolor': 'white',
+                    'paper_bgcolor': 'white',
+                    'hovermode': 'closest',
+                    'showlegend': True,
+                    'legend': {
+                        'x': 1,
+                        'y': 1,
+                        'xanchor': 'right',
+                        'yanchor': 'top',
+                        'bgcolor': 'rgba(255, 255, 255, 0.8)',
+                        'bordercolor': '#E5E5E5'
+                    }
+                }
+            }
+
+        transmittance_plot = create_plot_data(
+            wavelengths, pre_transmittance, post_transmittance,
+            'Transmittance Comparison', 'Transmittance (%)',
+            selected_pre.get('design_name', 'Unknown'),
+            selected_post.get('design_name', 'Unknown')
+        )
+
+        reflectance_plot = create_plot_data(
+            wavelengths, pre_reflectance, post_reflectance,
+            'Reflectance Comparison', 'Reflectance (%)',
+            selected_pre.get('design_name', 'Unknown'),
+            selected_post.get('design_name', 'Unknown')
+        )
+
+        absorbance_plot = create_plot_data(
+            wavelengths, pre_absorbance, post_absorbance,
+            'Absorbance Comparison', 'Absorbance',
+            selected_pre.get('design_name', 'Unknown'),
+            selected_post.get('design_name', 'Unknown')
+        )
+
+        return render_template('compare.html',
+            pre_data_files=pre_data_files,
+            post_data_files=post_data_files,
+            show_selection=True,
+            transmittance_plot=json.dumps(transmittance_plot),
+            reflectance_plot=json.dumps(reflectance_plot),
+            absorbance_plot=json.dumps(absorbance_plot),
+            pre_avg_transmittance=pre_avg_transmittance,
+            pre_avg_reflectance=pre_avg_reflectance,
+            pre_avg_absorbance=pre_avg_absorbance,
+            post_avg_transmittance=post_avg_transmittance,
+            post_avg_reflectance=post_avg_reflectance,
+            post_avg_absorbance=post_avg_absorbance,
+            transmittance_gain=transmittance_gain,
+            reflectance_gain=reflectance_gain,
+            absorbance_gain=absorbance_gain,
+            selected_pre_file=str(pre_file_id),
+            selected_post_file=str(post_file_id),
+            error=False
+        )
+            
+    except Exception as e:
+        print(f"Unexpected error in compare route: {str(e)}")
+        flash(f"An unexpected error occurred: {str(e)}", 'error')
+        return render_template('compare.html', error=True)
 
 if __name__ == '__main__':
     # Get port from Replit environment if available
