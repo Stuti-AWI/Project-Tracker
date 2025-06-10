@@ -19,9 +19,12 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from pymongo import MongoClient
 from bson import ObjectId  # Add this import at the top with other imports
+from flask_migrate import Migrate  # Add this import
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail, Email, To, Content
 
-# Load environment variables
-load_dotenv(override=True)  # Force reload of environment variables
+# Load environment variables from .env file
+load_dotenv()
 
 # Initialize OpenAI client with API key
 openai_api_key = os.getenv('OPENAI_API_KEY')
@@ -58,14 +61,32 @@ else:
     # Use local development database as fallback
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///project_tracker.db'
 
+# Add database configuration options
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_size': 10,
+    'pool_recycle': 3600,
+    'pool_pre_ping': True,
+    'pool_use_lifo': True,
+    'connect_args': {
+        'connect_timeout': 10,
+        'keepalives': 1,
+        'keepalives_idle': 30,
+        'keepalives_interval': 10,
+        'keepalives_count': 5
+    }
+}
+
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-here')  # Change this to a secure secret key
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587
 app.config['MAIL_USE_TLS'] = True
 app.config['MAIL_USERNAME'] = os.getenv('EMAIL_ADDRESS')
 app.config['MAIL_PASSWORD'] = os.getenv('EMAIL_PASSWORD')
+app.config['SENDGRID_API_KEY'] = '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'
+app.config['EMAIL_FROM'] = 'bthapa@intelladapt.com'
 db = SQLAlchemy(app)
+migrate = Migrate(app, db)  # Initialize Flask-Migrate
 mail = Mail(app)
 
 # Import Supabase config for additional features
@@ -124,6 +145,8 @@ class Sample(db.Model):
     coating = db.Column(db.String(1), default='N')
     annealing = db.Column(db.String(1), default='N')
     done = db.Column(db.String(1), default='N')
+    sample_image = db.Column(db.String(500), nullable=True)
+    image_description = db.Column(db.Text, nullable=True)
     # Add relationship to Experiment
     experiment = db.relationship('Experiment', backref='sample', uselist=False)
 
@@ -165,6 +188,8 @@ class SampleTrash(db.Model):
     coating = db.Column(db.String(1), default='N')
     annealing = db.Column(db.String(1), default='N')
     done = db.Column(db.String(1), default='N')
+    sample_image = db.Column(db.String(500), nullable=True)
+    image_description = db.Column(db.Text, nullable=True)
     deleted_at = db.Column(db.DateTime, default=datetime.utcnow)
     deleted_by = db.Column(db.String(80))
     # Add relationship to ExperimentTrash
@@ -240,56 +265,50 @@ def index():
 def add_sample():
     # Get all prefixes for the dropdown
     prefixes = Prefix.query.order_by(Prefix.full_form).all()
-    
+
     if request.method == 'POST':
-        # Get form data for sample
-        cleaning = 'Y' if request.form.get('cleaning') else 'N'
-        coating = 'Y' if request.form.get('coating') else 'N'
-        annealing = 'Y' if request.form.get('annealing') else 'N'
-        done = 'Y' if all([cleaning == 'Y', coating == 'Y', annealing == 'Y']) else 'N'
+        # Get form data
+        company_name = request.form['company_prefix']
+        erb_number = request.form['ERB']
         
-        # Get the selected prefix and ERB number
-        selected_prefix = request.form.get('company_prefix')
-        erb_number = request.form.get('ERB')
+        # Handle image upload
+        sample_image = None
+        if 'sample_image' in request.files:
+            file = request.files['sample_image']
+            if file and file.filename:
+                # Check if the file extension is allowed
+                allowed_extensions = {'jpg', 'jpeg', 'png'}
+                if '.' in file.filename and file.filename.rsplit('.', 1)[1].lower() in allowed_extensions:
+                    # Create a unique filename
+                    filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.filename}"
+                    # Save the file
+                    file.save(os.path.join('static', 'sample_images', filename))
+                    sample_image = f"sample_images/{filename}"
+
+        # Get the next sequence number for this ERB
+        last_sample = Sample.query.filter(
+            Sample.ERB == erb_number
+        ).order_by(Sample.id.desc()).first()
         
-        # Get the company name from the prefix table
-        prefix_obj = Prefix.query.get(selected_prefix)
-        if not prefix_obj:
-            flash('Invalid company selected', 'error')
-            return render_template('add.html', prefixes=prefixes)
-            
-        company_name = prefix_obj.full_form
+        if last_sample:
+            # Extract the sequence number and increment it
+            last_sequence = int(last_sample.id.split('-')[-1])
+            sequence_number = str(last_sequence + 1).zfill(3)
+        else:
+            sequence_number = '001'
         
-        if not erb_number:
-            flash('Please select a company and enter an ERB number', 'error')
-            return render_template('add.html', prefixes=prefixes)
-
-        # Find all samples for this company prefix
-        samples = Sample.query.filter(
-            Sample.id.like(f"{selected_prefix}-%")
-        ).all()
-
-        # Also check the trash table
-        trash_samples = SampleTrash.query.filter(
-            SampleTrash.id.like(f"{selected_prefix}-%")
-        ).all()
-
-        # Get all sequence numbers from both tables
-        sequence_numbers = []
-        for sample in samples + trash_samples:
-            try:
-                seq = int(sample.id.split('-')[-1])
-                sequence_numbers.append(seq)
-            except (IndexError, ValueError):
-                continue
-
-        # Get the next sequence number
-        sequence_number = 1
-        if sequence_numbers:
-            sequence_number = max(sequence_numbers) + 1
+        # Get the selected prefix
+        selected_prefix = request.form['company_prefix']
         
         # Generate the ID in the format PREFIX-ExERB-SEQUENCE
         sample_id = f"{selected_prefix}-Ex{erb_number}-{sequence_number}"
+        
+        # Get process status values
+        cleaning = 'Y' if request.form.get('cleaning') == 'on' else 'N'
+        coating = 'Y' if request.form.get('coating') == 'on' else 'N'
+        annealing = 'Y' if request.form.get('annealing') == 'on' else 'N'
+        # Set done to 'Y' only if all processes are 'Y'
+        done = 'Y' if all([cleaning == 'Y', coating == 'Y', annealing == 'Y']) else 'N'
         
         # Create new sample
         new_sample = Sample(
@@ -309,7 +328,9 @@ def add_sample():
             cleaning=cleaning,
             coating=coating,
             annealing=annealing,
-            done=done
+            done=done,
+            sample_image=sample_image,
+            image_description=request.form.get('image_description')
         )
         db.session.add(new_sample)
 
@@ -337,36 +358,50 @@ def add_sample():
 def edit_sample(id):
     sample = Sample.query.get_or_404(id)
     prefixes = Prefix.query.order_by(Prefix.full_form).all()
-    
+
     if request.method == 'POST':
-        # Get the selected prefix and company name
-        selected_prefix = request.form.get('company_prefix')
-        prefix_obj = Prefix.query.get(selected_prefix)
-        if not prefix_obj:
-            flash('Invalid company selected', 'error')
-            return render_template('edit.html', sample=sample, prefixes=prefixes)
-            
-        company_name = prefix_obj.full_form
-        
+        # Handle image upload
+        if 'sample_image' in request.files:
+            file = request.files['sample_image']
+            if file and file.filename:
+                # Check if the file extension is allowed
+                allowed_extensions = {'jpg', 'jpeg', 'png'}
+                if '.' in file.filename and file.filename.rsplit('.', 1)[1].lower() in allowed_extensions:
+                    # Delete old image if it exists
+                    if sample.sample_image:
+                        old_image_path = os.path.join('static', sample.sample_image)
+                        if os.path.exists(old_image_path):
+                            os.remove(old_image_path)
+                    
+                    # Create a unique filename
+                    filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.filename}"
+                    # Save the file
+                    file.save(os.path.join('static', 'sample_images', filename))
+                    sample.sample_image = f"sample_images/{filename}"
+
         # Update sample fields
-        sample.company_name = company_name
-        sample.id = request.form['id']
+        sample.company_name = request.form['company_prefix']
+        sample.ERB = request.form['ERB']
+        sample.ERB_description = request.form.get('ERB_description')
         sample.date = request.form['date']
         sample.time = request.form['time']
         sample.am_pm = request.form['am_pm']
-        sample.ERB = request.form.get('ERB')
-        sample.ERB_description = request.form.get('ERB_description')
         sample.recipe_front = request.form['recipe_front']
         sample.recipe_back = request.form['recipe_back']
         sample.glass_type = request.form['glass_type']
         sample.length = int(request.form['length'])
         sample.thickness = int(request.form['thickness'])
         sample.height = int(request.form['height'])
-        sample.cleaning = 'Y' if request.form.get('cleaning') else 'N'
-        sample.coating = 'Y' if request.form.get('coating') else 'N'
-        sample.annealing = 'Y' if request.form.get('annealing') else 'N'
+        
+        # Update process status values
+        sample.cleaning = 'Y' if request.form.get('cleaning') == 'on' else 'N'
+        sample.coating = 'Y' if request.form.get('coating') == 'on' else 'N'
+        sample.annealing = 'Y' if request.form.get('annealing') == 'on' else 'N'
+        # Set done to 'Y' only if all processes are 'Y'
         sample.done = 'Y' if all([sample.cleaning == 'Y', sample.coating == 'Y', sample.annealing == 'Y']) else 'N'
         
+        sample.image_description = request.form.get('image_description')
+
         db.session.commit()
         return redirect(url_for('index'))
     return render_template('edit.html', sample=sample, prefixes=prefixes)
@@ -639,12 +674,24 @@ def chatbot_llm():
                     The database has these tables:
                     - sample (id, company_name, ERB, ERB_description, date, time, am_pm, recipe_front, recipe_back, glass_type, length, thickness, height, cleaning, coating, annealing, done)
                     - experiment (id [foreign key to sample.id], transmittance, reflectance, absorbance, plqy, sem, edx, xrd)
+                    
+                    Important rules for PostgreSQL queries:
+                    1. Use exact column names as defined in the schema (case-sensitive)
+                    2. When comparing text values, use single quotes: 'value'
+                    3. For numeric comparisons, use numbers without quotes: 1, 2, 3
+                    4. For ERB comparisons, use: \"ERB\" = 'value' (note the double quotes for column name)
+                    5. The 'date' column in the sample table is stored as text in MM/DD/YYYY format. To filter by date, use TO_DATE(sample.date, 'MM/DD/YYYY') in WHERE clauses.
+                    6. For date phrases like 'last month', 'last year', 'this year', 'between X and Y', 'after X', 'before Y', convert the phrase to a date range and use BETWEEN, >=, <= as appropriate with TO_DATE.
+                    7. If you use any column from the sample table (such as sample.date), always include a JOIN sample ON experiment.id = sample.id in the FROM clause.
+                    
                     Only output the SQL query, nothing else."""},
                     {"role": "user", "content": user_input}
                 ]
             )
             
             generated_sql = completion.choices[0].message.content.strip()
+            # Post-process to ensure JOIN sample if needed
+            generated_sql = ensure_sample_join(generated_sql)
             
             # Execute the generated SQL query
             result = db.session.execute(generated_sql)
@@ -659,6 +706,69 @@ def chatbot_llm():
             return render_template('chatbot_llm.html')
             
     return render_template('chatbot_llm.html')
+
+def parse_date_range(query):
+    now = datetime.now()
+    # Last month
+    if "last month" in query:
+        first_day_this_month = datetime(now.year, now.month, 1)
+        last_month_end = first_day_this_month - timedelta(days=1)
+        last_month_start = datetime(last_month_end.year, last_month_end.month, 1)
+        return last_month_start, last_month_end
+    # Last week
+    if "last week" in query:
+        start = now - timedelta(days=now.weekday() + 7)
+        end = start + timedelta(days=6)
+        return start, end
+    # Today
+    if "today" in query:
+        start = datetime(now.year, now.month, now.day)
+        end = start + timedelta(days=1)
+        return start, end
+    # This month
+    if "this month" in query:
+        start = datetime(now.year, now.month, 1)
+        if now.month == 12:
+            end = datetime(now.year + 1, 1, 1) - timedelta(days=1)
+        else:
+            end = datetime(now.year, now.month + 1, 1) - timedelta(days=1)
+        return start, end
+    # Last year
+    if "last year" in query:
+        start = datetime(now.year - 1, 1, 1)
+        end = datetime(now.year - 1, 12, 31)
+        return start, end
+    # This year
+    if "this year" in query:
+        start = datetime(now.year, 1, 1)
+        end = datetime(now.year, 12, 31)
+        return start, end
+    # Between X and Y
+    match = re.search(r'between (\d{1,2}/\d{1,2}/\d{4}) and (\d{1,2}/\d{1,2}/\d{4})', query)
+    if match:
+        try:
+            start = datetime.strptime(match.group(1), "%m/%d/%Y")
+            end = datetime.strptime(match.group(2), "%m/%d/%Y")
+            return start, end
+        except Exception:
+            pass
+    # After X
+    match = re.search(r'after (\d{1,2}/\d{1,2}/\d{4})', query)
+    if match:
+        try:
+            start = datetime.strptime(match.group(1), "%m/%d/%Y")
+            return start, now
+        except Exception:
+            pass
+    # Before Y
+    match = re.search(r'before (\d{1,2}/\d{1,2}/\d{4})', query)
+    if match:
+        try:
+            end = datetime.strptime(match.group(1), "%m/%d/%Y")
+            return datetime(1900, 1, 1), end
+        except Exception:
+            pass
+    return None, None
 
 def analyze_query(query):
     query = query.lower().strip()
@@ -767,6 +877,11 @@ def analyze_query(query):
         if potential_columns:
             return 'columns', potential_columns
     
+    # Date range support
+    date_start, date_end = parse_date_range(query)
+    if date_start and date_end:
+        return 'date_range', {'start': date_start, 'end': date_end}
+    
     return 'error', "I couldn't understand your query. Please try using one of the example formats or ask for help."
 
 def extract_columns(query):
@@ -832,6 +947,8 @@ def process_dynamic_query(query_type, conditions, all_data):
         return process_status_query(conditions, all_data)
     elif query_type == 'combined':
         return process_combined_query(conditions, all_data)
+    elif query_type == 'date_range':
+        return process_date_range_query(conditions, all_data)
     return None
 
 def process_column_selection(columns, all_data):
@@ -980,6 +1097,19 @@ def process_combined_query(conditions, all_data):
     
     return filtered_data
 
+def process_date_range_query(conditions, all_data):
+    start = conditions['start']
+    end = conditions['end']
+    results = []
+    for sample, exp in all_data:
+        try:
+            sample_date = datetime.strptime(sample.date, "%m/%d/%Y")
+            if start <= sample_date <= end:
+                results.append((sample, exp))
+        except Exception:
+            continue
+    return results
+
 def get_help_message():
     return (
         "I can help you find information about:\n\n"
@@ -1006,6 +1136,13 @@ def get_help_message():
         "   Combined with columns:\n"
         "   - Example: 'Show id, date columns where cleaning=\"Y\" and coating=\"Y\"'\n"
         "   - Example: 'Show id, date columns where cleaning=\"Y\" or coating=\"Y\"'\n\n"
+        "6. Search by date range (advanced):\n"
+        "   - Example: 'Show all experiments for last month'\n"
+        "   - Example: 'Show all experiments for last year'\n"
+        "   - Example: 'Show all experiments for this year'\n"
+        "   - Example: 'Show all experiments between 01/01/2023 and 03/31/2023'\n"
+        "   - Example: 'Show all experiments after 01/01/2023'\n"
+        "   - Example: 'Show all experiments before 12/31/2023'\n\n"
         "Available columns:\n"
         "- Basic Info: id, company name, erb\n"
         "- Document Links: erb description (URL)\n"
@@ -1066,30 +1203,34 @@ def delete_prefix(prefix):
         flash('Error deleting prefix!', 'error')
     return redirect(url_for('prefix_table'))
 
-# Add this route after the login route
+# Public registration route
 @app.route('/register', methods=['POST'])
-@login_required
-@admin_required
 def register():
-    name = request.form.get('name')
-    prefix = request.form.get('prefix')
-    erb = request.form.get('ERB')  # Get ERB from form
-    erb_description = request.form.get('ERB_description')  # Get ERB description from form
-    
-    if name and prefix:
-        new_sample = Sample(
-            name=name, 
-            prefix=prefix,
-            ERB=erb,
-            ERB_description=erb_description
-        )
-        db.session.add(new_sample)
-        db.session.commit()
-        flash('Sample registered successfully!', 'success')
-    else:
-        flash('Name and prefix are required!', 'error')
-    
-    return redirect(url_for('index'))
+    username = request.form.get('username')
+    password = request.form.get('password')
+    confirm_password = request.form.get('confirm_password')
+
+    if not username or not password or not confirm_password:
+        flash('All fields are required.', 'error')
+        return redirect(url_for('login'))
+
+    if password != confirm_password:
+        flash('Passwords do not match.', 'error')
+        return redirect(url_for('login'))
+
+    # Check if user already exists
+    existing_user = User.query.filter_by(username=username).first()
+    if existing_user:
+        flash('Username already exists.', 'error')
+        return redirect(url_for('login'))
+
+    # Hash the password
+    hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
+    new_user = User(username=username, password=hashed_password)
+    db.session.add(new_user)
+    db.session.commit()
+    flash('Registration successful! You can now log in.', 'success')
+    return redirect(url_for('login'))
 
 # Add route to view trash
 @app.route('/trash')
@@ -1169,29 +1310,69 @@ def restore_from_trash(id):
 @app.route('/forgot_password', methods=['GET', 'POST'])
 def forgot_password():
     if request.method == 'POST':
-        email = request.form['email']
+        email = request.form.get('email')
         user = User.query.filter_by(username=email).first()
         
         if user:
-            # Generate reset token
+            # Generate a secure token
             token = secrets.token_urlsafe(32)
             user.reset_token = token
             user.reset_token_expiry = datetime.utcnow() + timedelta(hours=1)
             db.session.commit()
             
-            # Send reset email
-            reset_url = url_for('reset_password', token=token, _external=True)
-            msg = Message('Password Reset Request',
-                        sender=os.getenv('EMAIL_ADDRESS'),
-                        recipients=[email])
-            msg.body = f'''To reset your password, visit the following link:
-{reset_url}
-
-If you did not make this request, please ignore this email.
-'''
-            mail.send(msg)
-            flash('Reset instructions sent to your email.', 'info')
-            return redirect(url_for('login'))
+            # Create reset link
+            reset_link = url_for('reset_password', token=token, _external=True)
+            
+            try:
+                # Initialize SendGrid client
+                sg = SendGridAPIClient(app.config['SENDGRID_API_KEY'])
+                
+                # Create email message
+                message = Mail(
+                    from_email=Email(app.config['EMAIL_FROM']),
+                    to_emails=To(email),
+                    subject='Password Reset Request - Project Tracker',
+                    html_content=Content(
+                        'text/html',
+                        f'''
+                        <html>
+                            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                                    <h2 style="color: #ff1825;">Password Reset Request</h2>
+                                    <p>Hello,</p>
+                                    <p>We received a request to reset your password for the Project Tracker application. 
+                                    If you didn't make this request, you can safely ignore this email.</p>
+                                    <p>To reset your password, click the button below:</p>
+                                    <div style="text-align: center; margin: 30px 0;">
+                                        <a href="{reset_link}" 
+                                           style="background-color: #ff1825; color: white; padding: 12px 24px; 
+                                                  text-decoration: none; border-radius: 4px; font-weight: bold;">
+                                            Reset Password
+                                        </a>
+                                    </div>
+                                    <p>This link will expire in 1 hour.</p>
+                                    <p>If you're having trouble clicking the button, copy and paste this URL into your browser:</p>
+                                    <p style="word-break: break-all; color: #666;">{reset_link}</p>
+                                    <hr style="border: 1px solid #eee; margin: 20px 0;">
+                                    <p style="color: #666; font-size: 12px;">
+                                        This is an automated message, please do not reply to this email.
+                                    </p>
+                                </div>
+                            </body>
+                        </html>
+                        '''
+                    )
+                )
+                
+                # Send email
+                response = sg.send(message)
+                flash('Password reset instructions have been sent to your email.', 'success')
+                return redirect(url_for('login'))
+                
+            except Exception as e:
+                print(f"Error sending email: {str(e)}")
+                flash('Error sending password reset email. Please try again later.', 'error')
+                return redirect(url_for('forgot_password'))
         
         flash('Email address not found.', 'error')
     return render_template('forgot_password.html')
@@ -1199,24 +1380,27 @@ If you did not make this request, please ignore this email.
 @app.route('/reset_password/<token>', methods=['GET', 'POST'])
 def reset_password(token):
     user = User.query.filter_by(reset_token=token).first()
-    if user is None or user.reset_token_expiry < datetime.utcnow():
-        flash('Invalid or expired reset token.', 'error')
-        return redirect(url_for('login'))
+    
+    if not user or user.reset_token_expiry < datetime.utcnow():
+        flash('Invalid or expired password reset link.', 'error')
+        return redirect(url_for('forgot_password'))
     
     if request.method == 'POST':
-        password = request.form['password']
-        confirm_password = request.form['confirm_password']
+        password = request.form.get('password')
+        confirm_password = request.form.get('confirm_password')
         
         if password != confirm_password:
             flash('Passwords do not match.', 'error')
-        else:
-            user.password = generate_password_hash(password, method='pbkdf2:sha256')
-            user.reset_token = None
-            user.reset_token_expiry = None
-            db.session.commit()
-            flash('Your password has been updated.', 'success')
-            return redirect(url_for('login'))
-            
+            return render_template('reset_password.html')
+        
+        user.password = generate_password_hash(password)
+        user.reset_token = None
+        user.reset_token_expiry = None
+        db.session.commit()
+        
+        flash('Your password has been reset successfully.', 'success')
+        return redirect(url_for('login'))
+    
     return render_template('reset_password.html')
 
 @app.route('/plots')
@@ -1641,6 +1825,16 @@ def compare():
         print(f"Unexpected error in compare route: {str(e)}")
         flash(f"An unexpected error occurred: {str(e)}", 'error')
         return render_template('compare.html', error=True)
+
+def ensure_sample_join(sql):
+    # If sample. is referenced but no join or from sample is present, add the join
+    if re.search(r'sample\\.', sql, re.IGNORECASE) and not re.search(r'join\\s+sample|from\\s+sample', sql, re.IGNORECASE):
+        # Find FROM experiment (or FROM "experiment")
+        match = re.search(r'(from\\s+experiment\\b)', sql, re.IGNORECASE)
+        if match:
+            insert_pos = match.end()
+            sql = sql[:insert_pos] + ' JOIN sample ON experiment.id = sample.id' + sql[insert_pos:]
+    return sql
 
 if __name__ == '__main__':
     # Get port from Replit environment if available

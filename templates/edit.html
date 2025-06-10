@@ -7,7 +7,7 @@
 <body>
     <div class="container">
         <h1>Edit Sample</h1>
-        <form method="POST" onsubmit="return validateForm()">
+        <form method="POST" enctype="multipart/form-data" onsubmit="return validateForm()">
             <div class="form-group">
                 <label>Company: <span class="required">*</span></label>
                 <select name="company_prefix" required>
@@ -80,18 +80,35 @@
                 <label>Process:</label>
                 <div class="checkbox-group">
                     <label>
-                        <input type="checkbox" name="cleaning" 
+                        <input type="checkbox" name="cleaning" value="on" 
                                {% if sample.cleaning == 'Y' %}checked{% endif %}> Cleaning
                     </label>
                     <label>
-                        <input type="checkbox" name="coating" 
+                        <input type="checkbox" name="coating" value="on" 
                                {% if sample.coating == 'Y' %}checked{% endif %}> Coating
                     </label>
                     <label>
-                        <input type="checkbox" name="annealing" 
+                        <input type="checkbox" name="annealing" value="on" 
                                {% if sample.annealing == 'Y' %}checked{% endif %}> Annealing
                     </label>
                 </div>
+                <small class="form-text text-muted">All processes must be completed for the sample to be marked as Done</small>
+            </div>
+            <div class="form-group">
+                <label>Sample Image:</label>
+                {% if sample.sample_image %}
+                    <div class="current-image">
+                        <img src="{{ url_for('static', filename=sample.sample_image) }}" alt="Current sample image" style="max-width: 200px;">
+                        <p>Current image</p>
+                    </div>
+                {% endif %}
+                <input type="file" name="sample_image" accept=".jpg,.jpeg,.png">
+                <small class="form-text text-muted">Upload a new sample image (JPG, JPEG, or PNG format)</small>
+            </div>
+            <div class="form-group">
+                <label>Image Description:</label>
+                <textarea name="image_description" rows="3" placeholder="Enter a description of the sample image">{{ sample.image_description }}</textarea>
+                <small class="form-text text-muted">Describe what the image shows or any important details</small>
             </div>
             <button type="submit" class="btn">Update Sample</button>
             <a href="{{ url_for('index') }}" class="btn">Cancel</a>

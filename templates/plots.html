@@ -6,24 +6,6 @@
 <div class="container">
     <h2>Experimental Data Plots</h2>
     
-    <div class="controls-section">
-        <div class="plot-type-section">
-            <label>Select Plot Type:</label>
-            <select id="plotType" class="form-control">
-                    <option value="transmittance">Transmittance</option>
-                    <option value="reflectance">Reflectance</option>
-                    <option value="absorbance">Absorbance</option>
-                </select>
-        </div>
-        
-        <div class="sample-filter-section">
-            <label>Filter by Sample ID:</label>
-            <select id="sampleFilter" class="form-control">
-                    <option value="all">All Samples</option>
-                </select>
-            </div>
-        </div>
-
     <div class="upload-section">
         <div class="upload-buttons-container">
             <div class="form-group">
@@ -245,7 +227,7 @@
     }
 </style>
 
-<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         initializePlotHandlers();
@@ -280,28 +262,6 @@
             if (file) {
                 document.getElementById('post_tra_filename').textContent = file.name;
                 readAndPlotFile(file, 'post');
-            }
-        });
-
-        document.getElementById('plotType').addEventListener('change', function(e) {
-            const plotType = e.target.value;
-            const yAxisTitles = {
-                'transmittance': 'Transmittance (%)',
-                'reflectance': 'Reflectance (%)',
-                'absorbance': 'Absorbance'
-            };
-            const plotTitles = {
-                'transmittance': 'Transmittance vs Wavelength',
-                'reflectance': 'Reflectance vs Wavelength',
-                'absorbance': 'Absorbance vs Wavelength'
-            };
-            
-            const plot = document.getElementById('plotArea');
-            if (plot && plot.data && plot.data.length > 0) {
-                Plotly.update('plotArea', {}, {
-                    'yaxis.title': yAxisTitles[plotType],
-                    'title.text': plotTitles[plotType]
-                });
             }
         });
     }
@@ -604,18 +564,14 @@
         // Create checkboxes first
         createCheckboxes(dataSeries, colors);
 
-        const plotType = document.getElementById('plotType').value;
-        const plotTitles = {
-            'transmittance': 'Transmittance vs Wavelength',
-            'reflectance': 'Reflectance vs Wavelength',
-            'absorbance': 'Absorbance vs Wavelength'
-        };
+        // Set default plot title and y-axis title
+        const plotTitle = 'TRA vs Wavelength';
+        const yAxisTitle = 'TRA (%)';
 
         // Calculate statistics for annotations
         const preStats = calculateStatistics(currentData.pre);
         const postStats = calculateStatistics(currentData.post);
         let statsText = '';
-        
         if (preStats && postStats) {
             statsText = [
                 '<b>Pre TRA:</b> ' +
@@ -633,7 +589,7 @@
             x: series.x,
             y: series.y,
             mode: 'lines',
-                type: 'scatter',
+            type: 'scatter',
             name: series.name,
             line: {
                 color: colors[index % colors.length],
@@ -658,7 +614,7 @@
 
         const layout = {
             title: {
-                text: plotTitles[plotType],
+                text: plotTitle,
                 font: {
                     size: 20,
                     color: '#333'
@@ -688,7 +644,7 @@
             },
             yaxis: {
                 title: {
-                    text: 'TRA (%)',
+                    text: yAxisTitle,
                     font: { 
                         size: 14,
                         color: '#333'

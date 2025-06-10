@@ -42,7 +42,7 @@
 <body>
     <div class="container">
         <h2>Add New Sample</h2>
-        <form method="POST">
+        <form method="POST" enctype="multipart/form-data">
             <div class="form-sections">
                 <div class="section">
                     <h3>Sample Details</h3>
@@ -127,10 +127,27 @@
                     <div class="form-group">
                         <label>Process:</label>
                         <div class="checkbox-group">
-                            <label><input type="checkbox" name="cleaning"> Cleaning</label>
-                            <label><input type="checkbox" name="coating"> Coating</label>
-                            <label><input type="checkbox" name="annealing"> Annealing</label>
+                            <label>
+                                <input type="checkbox" name="cleaning" value="on"> Cleaning
+                            </label>
+                            <label>
+                                <input type="checkbox" name="coating" value="on"> Coating
+                            </label>
+                            <label>
+                                <input type="checkbox" name="annealing" value="on"> Annealing
+                            </label>
                         </div>
+                        <small class="form-text text-muted">All processes must be completed for the sample to be marked as Done</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Sample Image:</label>
+                        <input type="file" name="sample_image" accept=".jpg,.jpeg,.png">
+                        <small class="form-text text-muted">Upload a sample image (JPG, JPEG, or PNG format)</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Image Description:</label>
+                        <textarea name="image_description" rows="3" placeholder="Enter a description of the sample image"></textarea>
+                        <small class="form-text text-muted">Describe what the image shows or any important details</small>
                     </div>
                 </div>
 
