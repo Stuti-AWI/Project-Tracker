@@ -1,52 +1,137 @@
-# Reading CSV Files from Google Drive
+# AWI Project Tracker
 
-This Python script demonstrates how to read CSV files from Google Drive using the Google Drive API and pandas.
-
-## Setup Instructions
-
-1. Install the required packages:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-2. Set up Google Drive API:
-   - Go to the [Google Cloud Console](https://console.cloud.google.com/)
-   - Create a new project or select an existing one
-   - Enable the Google Drive API for your project
-   - Create credentials (OAuth 2.0 Client ID) for a desktop application
-   - Download the credentials and save them as `credentials.json` in the same directory as the script
-
-3. Get your file ID:
-   - Open your CSV file in Google Drive
-   - Get the file ID from the sharing URL
-   - The file ID is the long string of characters between `/d/` and `/view` in the URL
-   - Example URL: `https://drive.google.com/file/d/YOUR_FILE_ID_HERE/view`
-
-## Usage
-
-1. Replace `YOUR_FILE_ID_HERE` in the `main()` function with your actual Google Drive file ID.
-
-2. Run the script:
-   ```bash
-   python read_google_drive_csv.py
-   ```
-
-3. On first run:
-   - A browser window will open asking you to authenticate with your Google account
-   - Grant the requested permissions
-   - The authentication tokens will be saved locally in `token.pickle` for future use
+A comprehensive project tracking and management system designed for managing samples, experiments, and research data. This application provides a robust platform for tracking, analyzing, and visualizing experimental data with advanced features for data management and analysis.
 
 ## Features
 
-- Authenticates with Google Drive API
-- Downloads CSV file content
-- Converts CSV data to pandas DataFrame
-- Shows download progress
-- Handles errors gracefully
-- Caches authentication tokens for future use
+### 1. User Authentication and Authorization
+- Secure login and registration system
+- Role-based access control (Admin and Regular users)
+- Password reset functionality via email
+- Session management and security features
 
-## Notes
+### 2. Sample Management
+- Create, read, update, and delete (CRUD) operations for samples
+- Detailed sample information tracking including:
+  - Company name
+  - ERB (Experimental Reference Number)
+  - Date and time tracking
+  - Recipe details (front and back)
+  - Glass type specifications
+  - Physical dimensions (length, thickness, height)
+  - Process status (cleaning, coating, annealing)
+  - Sample images and descriptions
 
-- The script requires internet connectivity to access Google Drive
-- Make sure your CSV file is accessible with the Google account you use for authentication
-- The `credentials.json` file should never be shared or committed to version control 
+### 3. Experiment Management
+- Comprehensive experiment data tracking
+- Support for multiple types of experimental data:
+  - Transmittance
+  - Reflectance
+  - Absorbance
+  - PLQY (Photoluminescence Quantum Yield)
+  - SEM (Scanning Electron Microscopy)
+  - EDX (Energy Dispersive X-ray Spectroscopy)
+  - XRD (X-ray Diffraction)
+
+### 4. Data Analysis and Visualization
+- Interactive plots and graphs using Plotly
+- Comparative analysis tools
+- Data filtering and sorting capabilities
+- Custom query support for data analysis
+- Statistical analysis features
+
+### 5. Advanced Search and Filtering
+- Multi-criteria search functionality
+- Date range filtering
+- Status-based filtering
+- Company-specific filtering
+- Advanced query parsing and processing
+
+### 6. Data Recovery and Management
+- Trash management system for deleted items
+- Restore functionality for accidentally deleted data
+- Audit trail for data modifications
+- Data backup and recovery options
+
+### 7. Prefix Management
+- Custom prefix system for sample identification
+- Prefix table management
+- Full form tracking for prefixes
+
+### 8. AI-Powered Features
+- Intelligent chatbot for data queries
+- Natural language processing for data analysis
+- Automated data interpretation
+- Smart search capabilities
+
+### 9. Administrative Features
+- User management dashboard
+- Admin privilege control
+- User activity monitoring
+- System configuration management
+
+### 10. Data Export and Integration
+- CSV export functionality
+- Google Drive integration
+- Data migration tools
+- External system integration capabilities
+
+## Technical Stack
+
+- **Backend**: Flask (Python)
+- **Database**: 
+  - Primary: PostgreSQL
+  - Backup: SQLite
+  - Additional: MongoDB for specific features
+- **Frontend**: HTML, CSS, JavaScript
+- **Data Visualization**: Plotly
+- **AI Integration**: OpenAI API
+- **Email Service**: SendGrid
+- **Authentication**: Custom implementation with secure password hashing
+
+## Installation
+
+1. Clone the repository
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Set up environment variables:
+   - Create a `.env` file with necessary configurations
+   - Configure database connections
+   - Set up API keys for external services
+
+4. Initialize the database:
+   ```bash
+   flask db upgrade
+   ```
+
+5. Run the application:
+   ```bash
+   python app.py
+   ```
+
+## Security Features
+
+- Password hashing using Werkzeug's security functions
+- Session-based authentication
+- CSRF protection
+- Secure password reset mechanism
+- Role-based access control
+- Input validation and sanitization
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
+
+## License
+
+This project is proprietary and confidential. All rights reserved.
+
+## Support
+
+For support and queries, please contact the development team or raise an issue in the repository. 
