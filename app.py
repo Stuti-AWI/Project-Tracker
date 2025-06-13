@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_file
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
 from functools import wraps
@@ -111,10 +111,21 @@ def admin_required(f):
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(256), nullable=False)
     is_admin = db.Column(db.Boolean, default=False)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_login = db.Column(db.DateTime, nullable=True)
     reset_token = db.Column(db.String(100), unique=True, nullable=True)
     reset_token_expiry = db.Column(db.DateTime, nullable=True)
+    
+    # User preferences
+    notification_preferences = db.Column(db.JSON, default=dict)
+    dashboard_preferences = db.Column(db.JSON, default=dict)
+    
+    def __repr__(self):
+        return f'<User {self.username}>'
 
 # Login required decorator
 def login_required(f):
@@ -217,26 +228,22 @@ def login():
         
         user = User.query.filter_by(username=username).first()
         
-        # Debug prints
-        print(f"Login attempt for username: {username}")
-        if user:
-            print(f"User found, stored password hash: {user.password}")
+        if user and check_password_hash(user.password, password):
+            if not user.is_active:
+                flash('Your account has been deactivated. Please contact an administrator.', 'error')
+                return redirect(url_for('login'))
+            
+            session['user_id'] = user.id
+            session['username'] = user.username
+            session['is_admin'] = user.is_admin
+            
+            # Update last login
+            user.last_login = datetime.utcnow()
+            db.session.commit()
+            
+            return redirect(url_for('index'))
         else:
-            print("User not found")
-        
-        try:
-            if user and check_password_hash(user.password, password):
-                session['user_id'] = user.id
-                session['username'] = user.username
-                session['is_admin'] = user.is_admin
-                print("Password check successful")
-                return redirect(url_for('index'))
-            else:
-                print("Password check failed")
-                flash('Invalid username or password', 'error')
-        except Exception as e:
-            print(f"Error during password check: {str(e)}")
-            flash('An error occurred during login', 'error')
+            flash('Invalid username or password', 'error')
     
     return render_template('login.html')
 
@@ -1207,10 +1214,11 @@ def delete_prefix(prefix):
 @app.route('/register', methods=['POST'])
 def register():
     username = request.form.get('username')
+    email = request.form.get('email')
     password = request.form.get('password')
     confirm_password = request.form.get('confirm_password')
 
-    if not username or not password or not confirm_password:
+    if not username or not email or not password or not confirm_password:
         flash('All fields are required.', 'error')
         return redirect(url_for('login'))
 
@@ -1218,15 +1226,33 @@ def register():
         flash('Passwords do not match.', 'error')
         return redirect(url_for('login'))
 
-    # Check if user already exists
-    existing_user = User.query.filter_by(username=username).first()
+    # Check if username or email already exists
+    existing_user = User.query.filter((User.username == username) | (User.email == email)).first()
     if existing_user:
-        flash('Username already exists.', 'error')
+        if existing_user.username == username:
+            flash('Username already exists.', 'error')
+        else:
+            flash('Email already exists.', 'error')
         return redirect(url_for('login'))
 
     # Hash the password
     hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
-    new_user = User(username=username, password=hashed_password)
+    
+    # Create new user with default preferences
+    new_user = User(
+        username=username,
+        email=email,
+        password=hashed_password,
+        notification_preferences={
+            'email_notifications': True,
+            'system_notifications': True
+        },
+        dashboard_preferences={
+            'recent_activity': True,
+            'saved_queries': []
+        }
+    )
+    
     db.session.add(new_user)
     db.session.commit()
     flash('Registration successful! You can now log in.', 'success')
@@ -1311,7 +1337,7 @@ def restore_from_trash(id):
 def forgot_password():
     if request.method == 'POST':
         email = request.form.get('email')
-        user = User.query.filter_by(username=email).first()
+        user = User.query.filter_by(email=email).first()  # Changed from username to email
         
         if user:
             # Generate a secure token
@@ -1469,8 +1495,18 @@ def reset_admin():
                 # Create new admin user
                 admin_user = User(
                     username='admin',
+                    email='admin@example.com',
                     password=generate_password_hash('admin123', method='pbkdf2:sha256'),
-                    is_admin=True
+                    is_admin=True,
+                    is_active=True,
+                    notification_preferences={
+                        'email_notifications': True,
+                        'system_notifications': True
+                    },
+                    dashboard_preferences={
+                        'recent_activity': True,
+                        'saved_queries': []
+                    }
                 )
                 db.session.add(admin_user)
                 db.session.commit()
@@ -1836,6 +1872,56 @@ def ensure_sample_join(sql):
             sql = sql[:insert_pos] + ' JOIN sample ON experiment.id = sample.id' + sql[insert_pos:]
     return sql
 
+# Admin routes for user management
+@app.route('/admin/users')
+@login_required
+@admin_required
+def admin_users():
+    users = User.query.all()
+    return render_template('admin/users.html', users=users)
+
+@app.route('/admin/users/<int:user_id>/toggle_admin', methods=['POST'])
+@login_required
+@admin_required
+def toggle_admin_status(user_id):
+    user = User.query.get_or_404(user_id)
+    if user.id == session['user_id']:
+        flash('You cannot modify your own admin status', 'error')
+        return redirect(url_for('admin_users'))
+    
+    user.is_admin = not user.is_admin
+    db.session.commit()
+    flash(f'Admin status {"granted" if user.is_admin else "revoked"} for {user.username}', 'success')
+    return redirect(url_for('admin_users'))
+
+@app.route('/admin/users/<int:user_id>/toggle_active', methods=['POST'])
+@login_required
+@admin_required
+def toggle_user_active(user_id):
+    user = User.query.get_or_404(user_id)
+    if user.id == session['user_id']:
+        flash('You cannot deactivate your own account', 'error')
+        return redirect(url_for('admin_users'))
+    
+    user.is_active = not user.is_active
+    db.session.commit()
+    flash(f'User {user.username} has been {"activated" if user.is_active else "deactivated"}', 'success')
+    return redirect(url_for('admin_users'))
+
+@app.route('/admin/users/<int:user_id>/delete', methods=['POST'])
+@login_required
+@admin_required
+def delete_user(user_id):
+    user = User.query.get_or_404(user_id)
+    if user.id == session['user_id']:
+        flash('You cannot delete your own account', 'error')
+        return redirect(url_for('admin_users'))
+    
+    db.session.delete(user)
+    db.session.commit()
+    flash(f'User {user.username} has been deleted', 'success')
+    return redirect(url_for('admin_users'))
+
 if __name__ == '__main__':
     # Get port from Replit environment if available
     port = int(os.environ.get('PORT', 5111))  # Using port 5000 as default
@@ -1854,8 +1940,18 @@ if __name__ == '__main__':
             # Create fresh admin user
             admin_user = User(
                 username='admin',
+                email='admin@example.com',  # Add default admin email
                 password=generate_password_hash('admin123', method='pbkdf2:sha256'),
-                is_admin=True
+                is_admin=True,
+                is_active=True,
+                notification_preferences={
+                    'email_notifications': True,
+                    'system_notifications': True
+                },
+                dashboard_preferences={
+                    'recent_activity': True,
+                    'saved_queries': []
+                }
             )
             db.session.add(admin_user)
             db.session.commit()
