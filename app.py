@@ -1931,32 +1931,34 @@ if __name__ == '__main__':
         db.create_all()
         print("Database tables created successfully!")
         
-        # Clear existing users and create fresh admin user
+        # Check if any users exist, if not create admin user
         try:
-            User.query.delete()
-            db.session.commit()
-            print("Cleared existing users")
-            
-            # Create fresh admin user
-            admin_user = User(
-                username='admin',
-                email='admin@example.com',  # Add default admin email
-                password=generate_password_hash('admin123', method='pbkdf2:sha256'),
-                is_admin=True,
-                is_active=True,
-                notification_preferences={
-                    'email_notifications': True,
-                    'system_notifications': True
-                },
-                dashboard_preferences={
-                    'recent_activity': True,
-                    'saved_queries': []
-                }
-            )
-            db.session.add(admin_user)
-            db.session.commit()
-            print("Created fresh admin user with password: admin123")
-            
+            existing_users = User.query.first()
+            if not existing_users:
+                print("No users found, creating admin user...")
+                
+                # Create fresh admin user
+                admin_user = User(
+                    username='admin',
+                    email='admin@example.com',  # Add default admin email
+                    password=generate_password_hash('admin123', method='pbkdf2:sha256'),
+                    is_admin=True,
+                    is_active=True,
+                    notification_preferences={
+                        'email_notifications': True,
+                        'system_notifications': True
+                    },
+                    dashboard_preferences={
+                        'recent_activity': True,
+                        'saved_queries': []
+                    }
+                )
+                db.session.add(admin_user)
+                db.session.commit()
+                print("Created admin user with username: admin, password: admin123")
+            else:
+                print("Users already exist in database, skipping admin creation")
+                
         except Exception as e:
             print(f"Error during user setup: {str(e)}")
             db.session.rollback()
