@@ -277,6 +277,21 @@ def add_sample():
         # Get form data
         company_name = request.form['company_prefix']
         erb_number = request.form['ERB']
+        sample_id_part = request.form['sample_id']  # Get manual sample ID part
+        
+        # Validate sample ID part
+        if not sample_id_part:
+            flash('Sample ID is required!', 'error')
+            return render_template('add.html', prefixes=prefixes)
+        
+        # Generate the full ID in the format PREFIX-ExERB-SampleID
+        full_sample_id = f"{company_name}-Ex{erb_number}-{sample_id_part}"
+        
+        # Check if sample ID already exists
+        existing_sample = Sample.query.get(full_sample_id)
+        if existing_sample:
+            flash('Sample ID already exists! Please choose a different ID.', 'error')
+            return render_template('add.html', prefixes=prefixes)
         
         # Handle image upload
         sample_image = None
@@ -292,24 +307,6 @@ def add_sample():
                     file.save(os.path.join('static', 'sample_images', filename))
                     sample_image = f"sample_images/{filename}"
 
-        # Get the next sequence number for this ERB
-        last_sample = Sample.query.filter(
-            Sample.ERB == erb_number
-        ).order_by(Sample.id.desc()).first()
-        
-        if last_sample:
-            # Extract the sequence number and increment it
-            last_sequence = int(last_sample.id.split('-')[-1])
-            sequence_number = str(last_sequence + 1).zfill(3)
-        else:
-            sequence_number = '001'
-        
-        # Get the selected prefix
-        selected_prefix = request.form['company_prefix']
-        
-        # Generate the ID in the format PREFIX-ExERB-SEQUENCE
-        sample_id = f"{selected_prefix}-Ex{erb_number}-{sequence_number}"
-        
         # Get process status values
         cleaning = 'Y' if request.form.get('cleaning') == 'on' else 'N'
         coating = 'Y' if request.form.get('coating') == 'on' else 'N'
@@ -319,7 +316,7 @@ def add_sample():
         
         # Create new sample
         new_sample = Sample(
-            id=sample_id,
+            id=full_sample_id,  # Use the full generated ID
             company_name=company_name,
             ERB=erb_number,
             ERB_description=request.form.get('ERB_description'),
@@ -345,7 +342,7 @@ def add_sample():
         if any(request.form.get(field) for field in ['transmittance', 'reflectance', 'absorbance', 
                                                     'plqy', 'sem', 'edx', 'xrd']):
             experiment = Experiment(
-                id=sample_id,
+                id=full_sample_id,
                 transmittance=request.form.get('transmittance'),
                 reflectance=request.form.get('reflectance'),
                 absorbance=request.form.get('absorbance'),
@@ -357,6 +354,7 @@ def add_sample():
             db.session.add(experiment)
 
         db.session.commit()
+        flash('Sample added successfully!', 'success')
         return redirect(url_for('index'))
     return render_template('add.html', prefixes=prefixes)
 
@@ -421,6 +419,9 @@ def delete_sample(id):
         sample = Sample.query.get_or_404(id)
         experiment = Experiment.query.get(id)
         
+        # Get associated plot entries
+        plot_entries = Plots.query.filter_by(sample_id=id).all()
+        
         # Create trash records
         sample_trash = SampleTrash(
             id=sample.id,
@@ -460,6 +461,10 @@ def delete_sample(id):
             )
             db.session.add(experiment_trash)
             db.session.delete(experiment)
+        
+        # Delete associated plot entries
+        for plot_entry in plot_entries:
+            db.session.delete(plot_entry)
             
         # Delete the original sample
         db.session.delete(sample)
@@ -1429,9 +1434,37 @@ def reset_password(token):
     
     return render_template('reset_password.html')
 
-@app.route('/plots')
+@app.route('/plots', methods=['GET', 'POST'])
 @login_required
 def plots():
+    if request.method == 'POST':
+        # Handle adding new plot entry
+        sample_id = request.form.get('sample_id')
+        sharepoint_link = request.form.get('sharepoint_link')
+        
+        if sample_id and sharepoint_link:
+            # Check if sample exists
+            sample = Sample.query.get(sample_id)
+            if not sample:
+                flash('Sample ID not found! Please enter a valid sample ID.', 'error')
+            else:
+                # Check if plot entry already exists for this sample
+                existing_plot = Plots.query.filter_by(sample_id=sample_id).first()
+                if existing_plot:
+                    flash('A plot entry already exists for this sample ID!', 'error')
+                else:
+                    # Create new plot entry
+                    new_plot = Plots(
+                        sample_id=sample_id,
+                        sharepoint_link=sharepoint_link,
+                        created_by=session.get('username')
+                    )
+                    db.session.add(new_plot)
+                    db.session.commit()
+                    flash('Plot entry added successfully!', 'success')
+        else:
+            flash('Both Sample ID and SharePoint Link are required!', 'error')
+    
     # Query all experiments
     experiments = db.session.query(Sample, Experiment).join(Experiment).all()
     
@@ -1464,10 +1497,25 @@ def plots():
                 except:
                     continue
     
+    # Get all plots entries
+    plots_entries = db.session.query(Plots, Sample).outerjoin(Sample, Plots.sample_id == Sample.id).order_by(Plots.created_at.desc()).all()
+    
     # Convert plot data to JSON for JavaScript
     plot_json = json.dumps(plot_data)
     
-    return render_template('plots.html', plot_data=plot_json)
+    return render_template('plots.html', plot_data=plot_json, plots_entries=plots_entries)
+
+@app.route('/delete_plot/<int:plot_id>')
+@login_required
+def delete_plot(plot_id):
+    try:
+        plot_entry = Plots.query.get_or_404(plot_id)
+        db.session.delete(plot_entry)
+        db.session.commit()
+        flash('Plot entry deleted successfully!', 'success')
+    except Exception as e:
+        flash('Error deleting plot entry!', 'error')
+    return redirect(url_for('plots'))
 
 def update_password_hashes():
     users = User.query.all()
@@ -1921,6 +1969,21 @@ def delete_user(user_id):
     db.session.commit()
     flash(f'User {user.username} has been deleted', 'success')
     return redirect(url_for('admin_users'))
+
+# Add Plots model to store sample ID and SharePoint image links
+class Plots(db.Model):
+    __tablename__ = 'plots'
+    id = db.Column(db.Integer, primary_key=True)
+    sample_id = db.Column(db.String(100), db.ForeignKey('sample.id', ondelete='SET NULL'), nullable=True)
+    sharepoint_link = db.Column(db.String(500), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_by = db.Column(db.String(80))
+    
+    # Add relationship to Sample
+    sample = db.relationship('Sample', backref='plots')
+    
+    def __repr__(self):
+        return f'<Plot {self.sample_id}>'
 
 if __name__ == '__main__':
     # Get port from Replit environment if available
