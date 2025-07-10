@@ -1565,20 +1565,23 @@ def reset_admin():
 # MongoDB connection
 MONGODB_URI = os.getenv('MONGODB_URI')
 if not MONGODB_URI:
-    raise ValueError("No MONGODB_URI found in environment variables")
-
-try:
-    print(f"Attempting to connect to MongoDB...")
-    mongo_client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
-    # Force a connection attempt
-    mongo_client.server_info()
-    print("Successfully connected to MongoDB")
-    # Specify database name separately
-    mongo_db = mongo_client.AWI_users
-except Exception as e:
-    print(f"Error connecting to MongoDB: {str(e)}")
+    print("Warning: No MONGODB_URI found in environment variables. MongoDB features will be disabled.")
     mongo_client = None
     mongo_db = None
+else:
+    try:
+        print(f"Attempting to connect to MongoDB...")
+        mongo_client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
+        # Force a connection attempt
+        mongo_client.server_info()
+        print("Successfully connected to MongoDB")
+        # Specify database name separately
+        mongo_db = mongo_client.AWI_users
+    except Exception as e:
+        print(f"Error connecting to MongoDB: {str(e)}")
+        print("MongoDB features will be disabled.")
+        mongo_client = None
+        mongo_db = None
 
 @app.route('/compare', methods=['GET', 'POST'])
 @login_required
@@ -1986,49 +1989,69 @@ class Plots(db.Model):
         return f'<Plot {self.sample_id}>'
 
 if __name__ == '__main__':
-    # Get port from Replit environment if available
-    port = int(os.environ.get('PORT', 5111))  # Using port 5000 as default
+    # Get port from environment variable (Digital Ocean uses PORT)
+    port = int(os.environ.get('PORT', 5111))
+    
+    # Determine if we're in production
+    is_production = os.environ.get('PYTHON_ENV') == 'production'
     
     with app.app_context():
-        # Create tables
-        db.create_all()
-        print("Database tables created successfully!")
-        
-        # Check if any users exist, if not create admin user
         try:
-            existing_users = User.query.first()
-            if not existing_users:
-                print("No users found, creating admin user...")
-                
-                # Create fresh admin user
-                admin_user = User(
-                    username='admin',
-                    email='admin@example.com',  # Add default admin email
-                    password=generate_password_hash('admin123', method='pbkdf2:sha256'),
-                    is_admin=True,
-                    is_active=True,
-                    notification_preferences={
-                        'email_notifications': True,
-                        'system_notifications': True
-                    },
-                    dashboard_preferences={
-                        'recent_activity': True,
-                        'saved_queries': []
-                    }
-                )
-                db.session.add(admin_user)
-                db.session.commit()
-                print("Created admin user with username: admin, password: admin123")
-            else:
-                print("Users already exist in database, skipping admin creation")
+            # Create tables
+            db.create_all()
+            print("Database tables created successfully!")
+            
+            # Check if any users exist, if not create admin user
+            try:
+                existing_users = User.query.first()
+                if not existing_users:
+                    print("No users found, creating admin user...")
+                    
+                    # Create fresh admin user
+                    admin_user = User(
+                        username='admin',
+                        email='admin@example.com',
+                        password=generate_password_hash('admin123', method='pbkdf2:sha256'),
+                        is_admin=True,
+                        is_active=True,
+                        notification_preferences={
+                            'email_notifications': True,
+                            'system_notifications': True
+                        },
+                        dashboard_preferences={
+                            'recent_activity': True,
+                            'saved_queries': []
+                        }
+                    )
+                    db.session.add(admin_user)
+                    db.session.commit()
+                    print("Created admin user with username: admin, password: admin123")
+                else:
+                    print("Users already exist in database, skipping admin creation")
+                    
+            except Exception as e:
+                print(f"Error during user setup: {str(e)}")
+                db.session.rollback()
                 
         except Exception as e:
-            print(f"Error during user setup: {str(e)}")
-            db.session.rollback()
+            print(f"Error during database setup: {str(e)}")
+            if not is_production:
+                raise  # Re-raise in development
+            else:
+                print("Continuing without database setup in production...")
     
-    # Use Replit's host and port
-    app.run(
-        host='0.0.0.0',
-        port=port,
-        debug='development' in os.environ.get('PYTHON_ENV', '').lower()
-    )
+    # Configure app for production or development
+    if is_production:
+        print("Starting in production mode...")
+        app.run(
+            host='0.0.0.0',
+            port=port,
+            debug=False
+        )
+    else:
+        print("Starting in development mode...")
+        app.run(
+            host='0.0.0.0',
+            port=port,
+            debug=True
+        )

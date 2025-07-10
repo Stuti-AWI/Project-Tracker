@@ -1,6 +1,47 @@
+# Mac-specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# Database
+instance/
+*.db
+*.sqlite3
+
+# Python cache
 __pycache__/
 *.pyc
-.env
-instance/
+*.pyo
+*.pyd
+
+# Virtual environment
 venv/
-*.db 
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Static files that might be generated
+static/sample_images/
+static/uploads/
+
+# Google Drive API credentials
+credentials.json
+token.pickle
+
+# Replit specific
+.replit
+replit.nix 
